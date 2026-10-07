@@ -1,0 +1,10 @@
+{
+  "hello": "Bonjour",
+  "invalidUsername": "Nom d'utilisateur invalide",
+  "invalidEmail": "Email invalide",
+  "invalidPhone": "Numéro de téléphone invalide",
+  "weakPassword": "Mot de passe faible",
+  "invalidDate": "Date invalide",
+  "fieldEmpty": "Le champ est vide",
+  "login": "Connexion"
+}

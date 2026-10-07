@@ -1,0 +1,18 @@
+{
+    "sourceFile": "android/gradle.properties",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1768853255936,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1768853255936,
+            "name": "Commit-0",
+            "content": "org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G -XX:+HeapDumpOnOutOfMemoryError\r\norg.gradle.java.home=C:\\\\Program Files\\\\Java\\\\jdk-19\r\nandroid.useAndroidX=true\r\nandroid.enableJetifier=true\r\nandroid.defaults.buildfeatures.buildconfig=true\r\nandroid.nonTransitiveRClass=false\r\n\r\n# Fix for geolocator and other plugin compatibility issues\r\nandroid.compileSdkVersion=34\r\nandroid.targetSdkVersion=34\r\nandroid.minSdkVersion=21\r\nflutter.compileSdkVersion=34\r\nflutter.targetSdkVersion=34\r\nflutter.minSdkVersion=21\r\n"
+        }
+    ]
+}

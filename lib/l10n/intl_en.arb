@@ -1,0 +1,17 @@
+{
+  "@@locale": "en",
+  "invalidUsername": "Invalid username",
+  "invalidEmail": "Invalid email",
+  "invalidPhone": "Invalid phone number",
+  "weakPassword": "Weak password",
+  "invalidDate": "Invalid date",
+  "fieldEmpty": "Field is empty",
+  "back": "Back",
+  "settings": "Settings",
+  "profile": "Profile",
+  "changePassword": "Change Password",
+  "changeLanguage": "Change Language",
+  "about": "About",
+  "privacyPolicy": "Privacy Policy",
+  "logout": "Logout"
+}

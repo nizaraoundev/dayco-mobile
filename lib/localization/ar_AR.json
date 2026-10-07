@@ -1,0 +1,10 @@
+{
+  "hello": "مرحبا",
+  "invalidUsername": "الأسم غير صحيح",
+  "invalidEmail": "البريد الالكتروني غير صحيح",
+  "invalidPhone": "الهاتف غير صحيح",
+  "weakPassword": "كلمة المرور ضعيفة",
+  "invalidDate": "التاريخ غير صحيح",
+  "fieldEmpty": "الحقل فارغ",
+  "login": "تسجيل الدخول"
+}

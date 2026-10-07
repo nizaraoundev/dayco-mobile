@@ -1,0 +1,18 @@
+{
+    "sourceFile": "lib/features/commercial/data/models/cart_item_model.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1768853074534,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1768853074534,
+            "name": "Commit-0",
+            "content": "import 'product_model.dart';\r\n\r\n/// Cart item model for shopping cart\r\nclass CartItemModel {\r\n  final ProductModel product;\r\n  final int quantity;\r\n\r\n  CartItemModel({\r\n    required this.product,\r\n    this.quantity = 1,\r\n  });\r\n\r\n  double get total => product.wholesalePrice * quantity;\r\n\r\n  CartItemModel copyWith({\r\n    ProductModel? product,\r\n    int? quantity,\r\n  }) {\r\n    return CartItemModel(\r\n      product: product ?? this.product,\r\n      quantity: quantity ?? this.quantity,\r\n    );\r\n  }\r\n}\r\n"
+        }
+    ]
+}

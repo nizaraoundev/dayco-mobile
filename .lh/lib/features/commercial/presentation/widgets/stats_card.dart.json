@@ -1,0 +1,18 @@
+{
+    "sourceFile": "lib/features/commercial/presentation/widgets/stats_card.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1768853074526,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1768853074526,
+            "name": "Commit-0",
+            "content": "import 'package:flutter/material.dart';\r\nimport '../../../../core/theme/app_theme.dart';\r\n\r\n/// Stats card widget for dashboard\r\nclass StatsCard extends StatelessWidget {\r\n  final String title;\r\n  final String value;\r\n  final String subtitle;\r\n  final IconData icon;\r\n  final Color color;\r\n\r\n  const StatsCard({\r\n    super.key,\r\n    required this.title,\r\n    required this.value,\r\n    required this.subtitle,\r\n    required this.icon,\r\n    required this.color,\r\n  });\r\n\r\n  @override\r\n  Widget build(BuildContext context) {\r\n    return Container(\r\n      padding: const EdgeInsets.all(12),\r\n      decoration: BoxDecoration(\r\n        color: Colors.white,\r\n        borderRadius: BorderRadius.circular(16),\r\n        boxShadow: ColorManager.lightCardShadow,\r\n      ),\r\n      child: Column(\r\n        crossAxisAlignment: CrossAxisAlignment.start,\r\n        children: [\r\n          Container(\r\n            padding: const EdgeInsets.all(8),\r\n            decoration: BoxDecoration(\r\n              color: color.withOpacity(0.1),\r\n              borderRadius: BorderRadius.circular(8),\r\n            ),\r\n            child: Icon(icon, color: color, size: 20),\r\n          ),\r\n          const SizedBox(height: 12),\r\n          Text(\r\n            value,\r\n            style: TextStyle(\r\n              fontSize: 18,\r\n              fontWeight: FontWeight.bold,\r\n              color: ColorManager.textPrimary,\r\n            ),\r\n          ),\r\n          const SizedBox(height: 2),\r\n          Text(\r\n            subtitle,\r\n            style: TextStyle(\r\n              fontSize: 12,\r\n              color: Colors.grey[600],\r\n            ),\r\n          ),\r\n        ],\r\n      ),\r\n    );\r\n  }\r\n}\r\n"
+        }
+    ]
+}

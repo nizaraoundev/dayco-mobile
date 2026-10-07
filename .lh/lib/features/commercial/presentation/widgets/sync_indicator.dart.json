@@ -1,0 +1,18 @@
+{
+    "sourceFile": "lib/features/commercial/presentation/widgets/sync_indicator.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1768853074527,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1768853074527,
+            "name": "Commit-0",
+            "content": "import 'package:flutter/material.dart';\r\nimport '../../../../core/theme/app_theme.dart';\r\n\r\n/// Sync status indicator widget\r\nclass SyncIndicator extends StatelessWidget {\r\n  final bool isOnline;\r\n  final bool isSyncing;\r\n  final int pendingCount;\r\n  final VoidCallback? onTap;\r\n\r\n  const SyncIndicator({\r\n    super.key,\r\n    required this.isOnline,\r\n    required this.isSyncing,\r\n    required this.pendingCount,\r\n    this.onTap,\r\n  });\r\n\r\n  @override\r\n  Widget build(BuildContext context) {\r\n    return InkWell(\r\n      onTap: onTap,\r\n      borderRadius: BorderRadius.circular(20),\r\n      child: Container(\r\n        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),\r\n        decoration: BoxDecoration(\r\n          color: _getBackgroundColor().withOpacity(0.2),\r\n          borderRadius: BorderRadius.circular(20),\r\n        ),\r\n        child: Row(\r\n          mainAxisSize: MainAxisSize.min,\r\n          children: [\r\n            if (isSyncing)\r\n              SizedBox(\r\n                width: 14,\r\n                height: 14,\r\n                child: CircularProgressIndicator(\r\n                  strokeWidth: 2,\r\n                  valueColor: AlwaysStoppedAnimation(_getIconColor()),\r\n                ),\r\n              )\r\n            else\r\n              Icon(\r\n                _getIcon(),\r\n                size: 14,\r\n                color: _getIconColor(),\r\n              ),\r\n            const SizedBox(width: 6),\r\n            Text(\r\n              _getText(),\r\n              style: TextStyle(\r\n                fontSize: 12,\r\n                fontWeight: FontWeight.w500,\r\n                color: _getIconColor(),\r\n              ),\r\n            ),\r\n          ],\r\n        ),\r\n      ),\r\n    );\r\n  }\r\n\r\n  Color _getBackgroundColor() {\r\n    if (!isOnline) return Colors.grey;\r\n    if (isSyncing) return ColorManager.primaryColor;\r\n    if (pendingCount > 0) return Colors.orange;\r\n    return ColorManager.secondaryVariant;\r\n  }\r\n\r\n  Color _getIconColor() {\r\n    if (!isOnline) return Colors.white;\r\n    if (isSyncing) return Colors.white;\r\n    if (pendingCount > 0) return Colors.white;\r\n    return Colors.white;\r\n  }\r\n\r\n  IconData _getIcon() {\r\n    if (!isOnline) return Icons.cloud_off;\r\n    if (pendingCount > 0) return Icons.cloud_upload;\r\n    return Icons.cloud_done;\r\n  }\r\n\r\n  String _getText() {\r\n    if (!isOnline) return 'Hors ligne';\r\n    if (isSyncing) return 'Sync...';\r\n    if (pendingCount > 0) return '$pendingCount';\r\n    return 'Sync';\r\n  }\r\n}\r\n"
+        }
+    ]
+}

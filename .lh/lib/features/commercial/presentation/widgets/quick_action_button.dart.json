@@ -1,0 +1,18 @@
+{
+    "sourceFile": "lib/features/commercial/presentation/widgets/quick_action_button.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1768853074530,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1768853074530,
+            "name": "Commit-0",
+            "content": "import 'package:flutter/material.dart';\r\n\r\n/// Quick action button for dashboard\r\nclass QuickActionButton extends StatelessWidget {\r\n  final IconData icon;\r\n  final String label;\r\n  final Color color;\r\n  final VoidCallback onTap;\r\n\r\n  const QuickActionButton({\r\n    super.key,\r\n    required this.icon,\r\n    required this.label,\r\n    required this.color,\r\n    required this.onTap,\r\n  });\r\n\r\n  @override\r\n  Widget build(BuildContext context) {\r\n    return Material(\r\n      color: Colors.transparent,\r\n      child: InkWell(\r\n        onTap: onTap,\r\n        borderRadius: BorderRadius.circular(12),\r\n        child: Container(\r\n          padding: const EdgeInsets.symmetric(vertical: 16),\r\n          decoration: BoxDecoration(\r\n            color: color.withOpacity(0.1),\r\n            borderRadius: BorderRadius.circular(12),\r\n            border: Border.all(\r\n              color: color.withOpacity(0.3),\r\n              width: 1,\r\n            ),\r\n          ),\r\n          child: Column(\r\n            mainAxisSize: MainAxisSize.min,\r\n            children: [\r\n              Icon(icon, color: color, size: 28),\r\n              const SizedBox(height: 8),\r\n              Text(\r\n                label,\r\n                style: TextStyle(\r\n                  fontSize: 12,\r\n                  fontWeight: FontWeight.w600,\r\n                  color: color,\r\n                ),\r\n              ),\r\n            ],\r\n          ),\r\n        ),\r\n      ),\r\n    );\r\n  }\r\n}\r\n"
+        }
+    ]
+}

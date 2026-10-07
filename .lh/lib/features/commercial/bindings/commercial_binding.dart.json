@@ -1,0 +1,18 @@
+{
+    "sourceFile": "lib/features/commercial/bindings/commercial_binding.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1768853074533,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1768853074533,
+            "name": "Commit-0",
+            "content": "import 'package:get/get.dart';\r\nimport '../data/services/sync_service.dart';\r\nimport '../data/services/map_service.dart';\r\nimport '../data/services/fake_data_service.dart';\r\nimport '../presentation/controllers/commercial_controller.dart';\r\nimport '../presentation/controllers/map_controller.dart';\r\n\r\n/// Binding for commercial feature - initializes all dependencies\r\nclass CommercialBinding extends Bindings {\r\n  @override\r\n  void dependencies() {\r\n    // Services (lazy singletons)\r\n    Get.lazyPut<SyncService>(() => SyncService(), fenix: true);\r\n    Get.lazyPut<MapService>(() => MapService(), fenix: true);\r\n    Get.lazyPut<FakeDataService>(() => FakeDataService(), fenix: true);\r\n\r\n    // Controllers\r\n    Get.lazyPut<CommercialController>(\r\n      () => CommercialController(),\r\n      fenix: true,\r\n    );\r\n    Get.lazyPut<MapController>(\r\n      () => MapController(),\r\n      fenix: true,\r\n    );\r\n  }\r\n}\r\n\r\n/// Initial binding to be used when app starts with commercial feature\r\nclass InitialCommercialBinding extends Bindings {\r\n  @override\r\n  void dependencies() {\r\n    // Core services that should be initialized once\r\n    Get.put<SyncService>(SyncService(), permanent: true);\r\n    Get.put<MapService>(MapService(), permanent: true);\r\n    Get.put<FakeDataService>(FakeDataService(), permanent: true);\r\n\r\n    // Main controllers\r\n    Get.put<CommercialController>(CommercialController(), permanent: true);\r\n    Get.put<MapController>(MapController(), permanent: true);\r\n  }\r\n}\r\n\r\n/// Binding for map page\r\nclass MapBinding extends Bindings {\r\n  @override\r\n  void dependencies() {\r\n    // Ensure MapController is available\r\n    if (!Get.isRegistered<MapController>()) {\r\n      Get.lazyPut<MapController>(() => MapController());\r\n    }\r\n  }\r\n}\r\n\r\n/// Binding for client detail page\r\nclass ClientDetailBinding extends Bindings {\r\n  @override\r\n  void dependencies() {\r\n    // CommercialController should already be registered\r\n    // This is just a placeholder if additional dependencies are needed\r\n  }\r\n}\r\n\r\n/// Binding for products page\r\nclass ProductsBinding extends Bindings {\r\n  @override\r\n  void dependencies() {\r\n    // CommercialController should already be registered\r\n  }\r\n}\r\n\r\n/// Binding for orders page\r\nclass OrdersBinding extends Bindings {\r\n  @override\r\n  void dependencies() {\r\n    // CommercialController should already be registered\r\n  }\r\n}\r\n"
+        }
+    ]
+}

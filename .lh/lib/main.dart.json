@@ -1,0 +1,42 @@
+{
+    "sourceFile": "lib/main.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 6,
+            "patches": [
+                {
+                    "date": 1768850493124,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                },
+                {
+                    "date": 1768850499063,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,5 +1,5 @@\n-import 'package:../core/theme/animation_config.dart';\r\n+import 'package:../../core/theme/animation_config.dart';\r\n import 'package:dayco_mobile/localization/app_localizations.dart';\r\n import 'package:dayco_mobile/routes/app_pages.dart';\r\n import 'package:dayco_mobile/routes/app_routes.dart';\r\n import 'package:flutter/material.dart';\r\n"
+                },
+                {
+                    "date": 1768850504498,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,5 +1,5 @@\n-import 'package:../../core/theme/animation_config.dart';\r\n+import 'package:/../../core/theme/animation_config.dart';\r\n import 'package:dayco_mobile/localization/app_localizations.dart';\r\n import 'package:dayco_mobile/routes/app_pages.dart';\r\n import 'package:dayco_mobile/routes/app_routes.dart';\r\n import 'package:flutter/material.dart';\r\n"
+                },
+                {
+                    "date": 1768850514769,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,5 +1,5 @@\n-import 'package:/../../core/theme/animation_config.dart';\r\n+import 'package:../../../../core/theme/animation_config.dart';\r\n import 'package:dayco_mobile/localization/app_localizations.dart';\r\n import 'package:dayco_mobile/routes/app_pages.dart';\r\n import 'package:dayco_mobile/routes/app_routes.dart';\r\n import 'package:flutter/material.dart';\r\n"
+                },
+                {
+                    "date": 1768850805772,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,5 +1,6 @@\n import 'package:../../../../core/theme/animation_config.dart';\r\n+import 'package:dayco_mobile/routes/app_routes.dart';\r\n import 'package:dayco_mobile/localization/app_localizations.dart';\r\n import 'package:dayco_mobile/routes/app_pages.dart';\r\n import 'package:dayco_mobile/routes/app_routes.dart';\r\n import 'package:flutter/material.dart';\r\n"
+                },
+                {
+                    "date": 1768850816916,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,6 +1,5 @@\n-import 'package:../../../../core/theme/animation_config.dart';\r\n-import 'package:dayco_mobile/routes/app_routes.dart';\r\n+import 'package:dayco_mobile/core/theme/animation_config.dart';\r\n import 'package:dayco_mobile/localization/app_localizations.dart';\r\n import 'package:dayco_mobile/routes/app_pages.dart';\r\n import 'package:dayco_mobile/routes/app_routes.dart';\r\n import 'package:flutter/material.dart';\r\n"
+                },
+                {
+                    "date": 1768850825916,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,8 +1,8 @@\n-import 'package:driver_side/core/theme/animation_config.dart';\r\n-import 'package:driver_side/localization/app_localizations.dart';\r\n-import 'package:driver_side/routes/app_pages.dart';\r\n-import 'package:driver_side/routes/app_routes.dart';\r\n+import 'package:dayco_mobile/core/theme/animation_config.dart';\r\n+import 'package:dayco_mobile/localization/app_localizations.dart';\r\n+import 'package:dayco_mobile/routes/app_pages.dart';\r\n+import 'package:dayco_mobile/routes/app_routes.dart';\r\n import 'package:flutter/material.dart';\r\n import 'package:get/get.dart';\r\n import 'package:flutter_localizations/flutter_localizations.dart';\r\n \r\n"
+                }
+            ],
+            "date": 1768850493124,
+            "name": "Commit-0",
+            "content": "import 'package:../core/theme/animation_config.dart';\r\nimport 'package:dayco_mobile/localization/app_localizations.dart';\r\nimport 'package:dayco_mobile/routes/app_pages.dart';\r\nimport 'package:dayco_mobile/routes/app_routes.dart';\r\nimport 'package:flutter/material.dart';\r\nimport 'package:get/get.dart';\r\nimport 'package:flutter_localizations/flutter_localizations.dart';\r\n\r\nimport 'core/services/driver_service.dart';\r\nimport 'core/services/language_service.dart';\r\n\r\nvoid main() async {\r\n  WidgetsFlutterBinding.ensureInitialized();\r\n\r\n  debugProfileBuildsEnabled = true;\r\n\r\n  try {\r\n    // Initialize language service before running the app\r\n    final languageService = LanguageService();\r\n    await languageService.onInit();\r\n    Get.put(languageService, permanent: true);\r\n\r\n    // Initialize driver service\r\n    final driverService = DriverService();\r\n    driverService.onInit();\r\n    Get.put(driverService, permanent: true);\r\n\r\n    runApp(const MyApp());\r\n  } catch (e) {\r\n    print('Error during app initialization: $e');\r\n    // Run app anyway with minimal setup\r\n    runApp(const MyApp());\r\n  }\r\n}\r\n\r\nclass MyApp extends StatelessWidget {\r\n  const MyApp({super.key});\r\n\r\n  @override\r\n  Widget build(BuildContext context) {\r\n    return GetMaterialApp(\r\n      darkTheme: ThemeData.dark(),\r\n      locale: _getLocale(),\r\n      localizationsDelegates: const [\r\n        S.delegate,\r\n        GlobalMaterialLocalizations.delegate,\r\n        GlobalWidgetsLocalizations.delegate,\r\n        GlobalCupertinoLocalizations.delegate,\r\n      ],\r\n      supportedLocales: S.supportedLocales,\r\n      debugShowCheckedModeBanner: false,\r\n      theme: ThemeData(\r\n        useMaterial3: true,\r\n        pageTransitionsTheme: AppAnimationConfig.pageTransitionsTheme,\r\n        // Enhanced visual feedback for interactions\r\n        splashFactory: InkRipple.splashFactory,\r\n        highlightColor: Colors.transparent,\r\n        splashColor: Colors.black.withOpacity(0.1),\r\n        // Smooth curves for all animations\r\n        platform: TargetPlatform.android,\r\n      ),\r\n      initialRoute: AppRoutes.login,\r\n      getPages: AppPages.routes,\r\n      builder: (context, child) {\r\n        return Directionality(\r\n          textDirection: TextDirection.ltr,\r\n          child: child!,\r\n        );\r\n      },\r\n    );\r\n  }\r\n\r\n  Locale _getLocale() {\r\n    try {\r\n      final languageService = Get.find<LanguageService>();\r\n      return Locale(languageService.getCurrentLanguage());\r\n    } catch (e) {\r\n      // Fallback to English if language service is not available\r\n      return const Locale('en');\r\n    }\r\n  }\r\n}\r\n"
+        }
+    ]
+}

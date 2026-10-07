@@ -1,0 +1,18 @@
+{
+    "sourceFile": "lib/features/ride_history/presentation/pages/ride_history_page.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1768850952399,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1768850952399,
+            "name": "Commit-0",
+            "content": ""
+        }
+    ]
+}

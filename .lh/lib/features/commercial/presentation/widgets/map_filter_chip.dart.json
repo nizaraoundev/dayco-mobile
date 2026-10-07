@@ -1,0 +1,18 @@
+{
+    "sourceFile": "lib/features/commercial/presentation/widgets/map_filter_chip.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1768853074531,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1768853074531,
+            "name": "Commit-0",
+            "content": "import 'package:flutter/material.dart';\r\n\r\n/// Filter chip for map\r\nclass MapFilterChip extends StatelessWidget {\r\n  final String label;\r\n  final IconData icon;\r\n  final Color? color;\r\n  final bool isSelected;\r\n  final VoidCallback onTap;\r\n\r\n  const MapFilterChip({\r\n    super.key,\r\n    required this.label,\r\n    required this.icon,\r\n    this.color,\r\n    this.isSelected = false,\r\n    required this.onTap,\r\n  });\r\n\r\n  @override\r\n  Widget build(BuildContext context) {\r\n    final chipColor = color ?? Colors.grey[700]!;\r\n\r\n    return Material(\r\n      color: Colors.transparent,\r\n      child: InkWell(\r\n        onTap: onTap,\r\n        borderRadius: BorderRadius.circular(20),\r\n        child: Container(\r\n          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),\r\n          decoration: BoxDecoration(\r\n            color: isSelected\r\n                ? chipColor.withOpacity(0.15)\r\n                : Colors.white,\r\n            borderRadius: BorderRadius.circular(20),\r\n            border: Border.all(\r\n              color: isSelected ? chipColor : Colors.grey[300]!,\r\n              width: isSelected ? 1.5 : 1,\r\n            ),\r\n            boxShadow: [\r\n              BoxShadow(\r\n                color: Colors.black.withOpacity(0.05),\r\n                blurRadius: 4,\r\n                offset: const Offset(0, 2),\r\n              ),\r\n            ],\r\n          ),\r\n          child: Row(\r\n            mainAxisSize: MainAxisSize.min,\r\n            children: [\r\n              Icon(\r\n                icon,\r\n                size: 16,\r\n                color: isSelected ? chipColor : Colors.grey[600],\r\n              ),\r\n              const SizedBox(width: 6),\r\n              Text(\r\n                label,\r\n                style: TextStyle(\r\n                  fontSize: 12,\r\n                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,\r\n                  color: isSelected ? chipColor : Colors.grey[700],\r\n                ),\r\n              ),\r\n            ],\r\n          ),\r\n        ),\r\n      ),\r\n    );\r\n  }\r\n}\r\n"
+        }
+    ]
+}

@@ -1,0 +1,18 @@
+{
+    "sourceFile": "lib/features/commercial/data/models/models.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1768853074523,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1768853074523,
+            "name": "Commit-0",
+            "content": "export 'client_model.dart';\r\nexport 'product_model.dart';\r\nexport 'order_model.dart';\r\nexport 'visit_model.dart';\r\nexport 'route_model.dart';\r\nexport 'sync_model.dart';\r\nexport 'cart_item_model.dart';\r\n"
+        }
+    ]
+}

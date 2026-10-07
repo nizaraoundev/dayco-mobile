@@ -1,0 +1,10 @@
+{
+  "hello": "Hello",
+  "invalidUsername": "Invalid username",
+  "invalidEmail": "Invalid email",
+  "invalidPhone": "Invalid phone number",
+  "weakPassword": "Weak password",
+  "invalidDate": "Invalid date",
+  "fieldEmpty": "Field is empty",
+  "login": "Login"
+}

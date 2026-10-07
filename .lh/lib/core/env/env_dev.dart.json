@@ -1,0 +1,22 @@
+{
+    "sourceFile": "lib/core/env/env_dev.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 1,
+            "patches": [
+                {
+                    "date": 1769957247292,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                },
+                {
+                    "date": 1769957382190,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,1 +1,15 @@\n // Development environment config+\r\n+class EnvDev {\r\n+  // API Gateway base URL\r\n+  static const String baseUrl = \"http://10.0.2.2:8080\";\r\n+\r\n+  // Endpoints\r\n+  static const String catalogue = \"/api/catalogue\";\r\n+  static const String client = \"/api/client\";\r\n+  static const String commande = \"/api/commande\";\r\n+  static const String stock = \"/api/stock\";\r\n+\r\n+  // Timeout\r\n+  static const int connectTimeout = 15000;\r\n+  static const int receiveTimeout = 15000;\r\n+}\r\n"
+                }
+            ],
+            "date": 1769957247292,
+            "name": "Commit-0",
+            "content": "// Development environment config+\r\n"
+        }
+    ]
+}
