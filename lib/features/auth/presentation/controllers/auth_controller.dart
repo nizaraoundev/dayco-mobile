@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../../core/services/language_service.dart';
+import '../../../../core/utils/app_logger.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../routes/app_routes.dart';
 import '../../data/models/login_request.dart';
@@ -122,7 +123,10 @@ class AuthController extends GetxController {
           codeClient: codeClient,
           password: password,
         );
-        print("Login request: ${loginRequest.toJson()}");
+        // Never log the request body: it contains the password in cleartext,
+        // and device logs are readable by `adb logcat` and captured in bug
+        // reports. Only the non-secret identifier is recorded.
+        AppLogger.debug('Login attempt for codeClient=$codeClient');
         final loginResponse = await _authService.login(loginRequest);
 
         // Get user details
@@ -142,7 +146,10 @@ class AuthController extends GetxController {
           duration: const Duration(seconds: 2),
         );
 
-        Get.offAllNamed(AppRoutes.commercialMap);
+        // Goes to initialization, not straight to the map: the map's data is
+        // loaded there first so it opens ready instead of filling in behind a
+        // set of spinners. `offAllNamed` keeps the login screen off the stack.
+        Get.offAllNamed(AppRoutes.initializing);
       } catch (e) {
         isLoginLoading.value = false;
         Get.snackbar(

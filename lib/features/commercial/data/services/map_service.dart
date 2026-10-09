@@ -6,6 +6,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
+import '../../../../core/utils/app_logger.dart';
 import '../models/models.dart';
 
 /// Google Maps API Key
@@ -81,7 +82,7 @@ class MapService extends GetxService {
         }
       }
     } catch (e) {
-      print('Error getting route: $e');
+      AppLogger.error('Route lookup failed', error: e);
     }
 
     return polylineCoordinates;
@@ -216,7 +217,7 @@ class MapService extends GetxService {
         }
       }
     } catch (e) {
-      print('Error optimizing route: $e');
+      AppLogger.error('Route optimisation failed', error: e);
     }
 
     return null;
@@ -268,7 +269,7 @@ class MapService extends GetxService {
         }
       }
     } catch (e) {
-      print('Error getting directions info: $e');
+      AppLogger.error('Directions lookup failed', error: e);
     }
     return null;
   }

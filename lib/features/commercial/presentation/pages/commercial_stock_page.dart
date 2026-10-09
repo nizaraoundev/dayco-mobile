@@ -45,8 +45,6 @@ class _CommercialStockPageState extends State<CommercialStockPage> {
       backgroundColor: ColorManager.backgroundColor,
       appBar: AppBar(
         title: const Text('Stock Commercial'),
-        backgroundColor: ColorManager.primaryColor,
-        foregroundColor: Colors.white,
       ),
       body: Column(
         children: [

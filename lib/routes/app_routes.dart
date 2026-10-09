@@ -70,6 +70,10 @@ class AppRoutes {
   // Commercial Routes (B2B Sales App)
   static const String commercialDashboard = '/commercial-dashboard';
   static const String commercialMap = '/commercial-map';
+
+  /// Post-login initialization. Reached only with a valid session, and always
+  /// entered with `offAllNamed` so the login screen is not left on the stack.
+  static const String initializing = '/initializing';
   static const String clients = '/clients';
   static const String clientDetail = '/client-detail';
   static const String products = '/products';

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'brands_model.dart';
+import '../../../../core/catalog/car_brand.dart';
 
 /// Client category enum for B2B clients
 enum ClientCategory { vip, standard, PROSPECT }

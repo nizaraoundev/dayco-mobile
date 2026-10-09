@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
+import '../../../../core/utils/app_logger.dart';
 import '../models/models.dart';
 import 'database_service.dart';
 
@@ -18,11 +19,28 @@ class SyncService extends GetxService {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _autoSyncTimer;
 
+  /// Whether a real sync endpoint has been configured.
+  ///
+  /// [_baseUrl] is still the template placeholder `api.dayco.tn`, which does
+  /// not resolve. Every upload attempt therefore fails, and the failures were
+  /// swallowed into `print('Sync error: ...')` — so the app burned battery and
+  /// radio on a timer, every five minutes, forever, achieving nothing.
+  ///
+  /// Until a real endpoint exists, uploads are skipped rather than attempted.
+  /// The local queue still works: visits and orders are persisted to sqflite
+  /// and will be uploaded once this is pointed at a live host.
+  static bool get isSyncEndpointConfigured => false;
+
   @override
   void onInit() {
     super.onInit();
+    // Connectivity is still observed, because the dashboard shows an
+    // online/offline indicator. What is gone is the automatic `syncAll()` it
+    // used to trigger on every connectivity change.
     _initConnectivity();
-    _startAutoSync();
+
+    // `_startAutoSync()` is deliberately not called. See
+    // [isSyncEndpointConfigured].
   }
 
   @override
@@ -36,12 +54,10 @@ class SyncService extends GetxService {
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
       results,
     ) {
-      final hasConnection = results.any((r) => r != ConnectivityResult.none);
-      isOnline.value = hasConnection;
-      if (hasConnection) {
-        // Auto sync when back online
-        syncAll();
-      }
+      // Only the indicator is updated. Triggering `syncAll()` here meant every
+      // connectivity flap — common in the field, moving between cells — fired
+      // a burst of requests at a host that does not exist.
+      isOnline.value = results.any((r) => r != ConnectivityResult.none);
     });
 
     // Check initial connectivity
@@ -50,8 +66,14 @@ class SyncService extends GetxService {
     });
   }
 
+  /// Starts the periodic upload.
+  ///
+  /// Not called while [isSyncEndpointConfigured] is false. Kept so that
+  /// enabling sync, once a real endpoint exists, is a one-line change rather
+  /// than a rewrite.
+  // ignore: unused_element
   void _startAutoSync() {
-    // Auto sync every 5 minutes when online
+    _autoSyncTimer?.cancel();
     _autoSyncTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (isOnline.value && !isSyncing.value) {
         syncAll();
@@ -66,6 +88,15 @@ class SyncService extends GetxService {
 
   /// Sync all pending items
   Future<void> syncAll() async {
+    if (!isSyncEndpointConfigured) {
+      // Refresh the counts so the dashboard still shows what is queued, then
+      // stop. Attempting an upload against the placeholder host would only
+      // mark every item failed and inflate its retry count.
+      AppLogger.info('Sync skipped: no sync endpoint is configured');
+      await refreshSyncSummary();
+      return;
+    }
+
     if (isSyncing.value || !isOnline.value) return;
 
     isSyncing.value = true;
@@ -79,8 +110,8 @@ class SyncService extends GetxService {
       }
 
       await refreshSyncSummary();
-    } catch (e) {
-      print('Sync error: $e');
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('Sync failed', error: error, stackTrace: stackTrace);
     } finally {
       isSyncing.value = false;
       syncSummary.value = syncSummary.value.copyWith(isSyncing: false);
@@ -242,7 +273,7 @@ class SyncService extends GetxService {
     await refreshSyncSummary();
 
     // Try immediate sync if online
-    if (isOnline.value) {
+    if (isOnline.value && isSyncEndpointConfigured) {
       syncAll();
     }
   }
@@ -260,7 +291,7 @@ class SyncService extends GetxService {
     await _db.addToSyncQueue(item);
     await refreshSyncSummary();
 
-    if (isOnline.value) {
+    if (isOnline.value && isSyncEndpointConfigured) {
       syncAll();
     }
   }
@@ -278,14 +309,14 @@ class SyncService extends GetxService {
     await _db.addToSyncQueue(item);
     await refreshSyncSummary();
 
-    if (isOnline.value) {
+    if (isOnline.value && isSyncEndpointConfigured) {
       syncAll();
     }
   }
 
   /// Download all data from server (initial sync or refresh)
   Future<void> downloadAllData() async {
-    if (!isOnline.value) return;
+    if (!isOnline.value || !isSyncEndpointConfigured) return;
 
     try {
       // Download clients
@@ -306,8 +337,8 @@ class SyncService extends GetxService {
           await _db.insertProduct(ProductModel.fromJson(json));
         }
       }
-    } catch (e) {
-      print('Download error: $e');
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('Download failed', error: error, stackTrace: stackTrace);
     }
   }
 }

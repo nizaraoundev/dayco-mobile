@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../../../core/utils/app_logger.dart';
 import '../../data/models/models.dart';
 import '../../data/services/services.dart';
 import '../../data/services/fake_data_service.dart';
@@ -58,7 +59,7 @@ class CommercialController extends GetxController {
       // Calculate stats
       _calculateStats();
     } catch (e) {
-      print('Error initializing data: $e');
+      AppLogger.error('Initial data load failed', error: e);
     } finally {
       isLoading.value = false;
     }
@@ -309,7 +310,7 @@ class CommercialController extends GetxController {
         await _db.insertRoute(activeRoute.value!);
       }
     } catch (e) {
-      print('Error generating route: $e');
+      AppLogger.error('Route generation failed', error: e);
     } finally {
       isLoading.value = false;
     }

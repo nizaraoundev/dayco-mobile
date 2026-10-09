@@ -269,22 +269,113 @@ class CarBrandsModel {
     return selectedBrands.map((brand) => brand.displayName).toList();
   }
 
-  /// Convert to JSON for storage
+  /// Convert to JSON for storage.
+  ///
+  /// Persists stable enum *names*, not indices. The previous implementation
+  /// stored `brand.index`, so inserting or reordering a single entry in
+  /// [CarBrand] silently remapped every brand already saved on a client.
   Map<String, dynamic> toJson() {
-    return {'selectedBrands': selectedBrands.map((b) => b.index).toList()};
+    return {'selectedBrands': selectedBrands.map((b) => b.name).toList()};
   }
 
-  /// Create from JSON
+  /// Create from JSON.
+  ///
+  /// Accepts the stable-name form written by [toJson] and the legacy
+  /// index form, so data persisted by earlier builds still loads. Unknown
+  /// entries are skipped rather than throwing — `CarBrand.values[index]` used
+  /// to raise a `RangeError` and take the whole client payload down with it.
   factory CarBrandsModel.fromJson(Map<String, dynamic> json) {
-    final brandIndices = List<int>.from(json['selectedBrands'] ?? []);
-    final brands = brandIndices.map((index) => CarBrand.values[index]).toList();
+    final raw = json['selectedBrands'];
+    if (raw is! List) return CarBrandsModel(selectedBrands: []);
+
+    final byName = {for (final brand in CarBrand.values) brand.name: brand};
+    final brands = <CarBrand>[];
+
+    for (final entry in raw) {
+      if (entry is int) {
+        // Legacy index form.
+        if (entry >= 0 && entry < CarBrand.values.length) {
+          brands.add(CarBrand.values[entry]);
+        }
+        continue;
+      }
+
+      final name = entry?.toString().trim();
+      if (name == null || name.isEmpty) continue;
+
+      final brand = byName[name] ?? CarBrandCodec.tryParse(name);
+      if (brand != null) brands.add(brand);
+    }
+
     return CarBrandsModel(selectedBrands: brands);
   }
 
-  /// Copy with modifications
+  /// Copy with modifications.
+  ///
+  /// The list is copied. Previously the copy shared its backing list with the
+  /// original, so [toggleBrand] on one instance mutated the other.
   CarBrandsModel copyWith({List<CarBrand>? selectedBrands}) {
     return CarBrandsModel(
-      selectedBrands: selectedBrands ?? this.selectedBrands,
+      selectedBrands: List<CarBrand>.from(selectedBrands ?? this.selectedBrands),
     );
+  }
+}
+
+/// Converts between [CarBrand] and the strings the backend stores in `marques`.
+///
+/// The original code wrote two different representations for the same field:
+/// creating a sub-client sent `brand.name` (`"mercedBenz"`), while updating a
+/// sub-client and creating a B2B client both sent `brand.displayName`
+/// (`"Mercedes-Benz"`). Editing a client therefore rewrote its brands into a
+/// different vocabulary than the one it was created with.
+///
+/// [encode] settles on `displayName` — the representation two of the three
+/// original call sites already used — and [tryParse] accepts either, so records
+/// written by older builds still resolve.
+abstract final class CarBrandCodec {
+  const CarBrandCodec._();
+
+  /// The value to send to the backend for [brand].
+  static String encode(CarBrand brand) => brand.displayName;
+
+  /// The values to send for [brands].
+  static List<String> encodeAll(Iterable<CarBrand> brands) =>
+      brands.map(encode).toList(growable: false);
+
+  /// Resolves a backend string to a [CarBrand], accepting both the display name
+  /// and the enum name, case- and punctuation-insensitively.
+  static CarBrand? tryParse(String value) {
+    final needle = _normalise(value);
+    if (needle.isEmpty) return null;
+
+    for (final brand in CarBrand.values) {
+      if (_normalise(brand.displayName) == needle) return brand;
+      if (_normalise(brand.name) == needle) return brand;
+    }
+    return null;
+  }
+
+  /// Resolves a list of backend strings, skipping unrecognised entries.
+  static List<CarBrand> parseAll(Iterable<dynamic> values) => values
+      .map((value) => tryParse(value?.toString() ?? ''))
+      .whereType<CarBrand>()
+      .toList(growable: false);
+
+  /// Strips case, accents, spaces and punctuation so `"Mercedes-Benz"`,
+  /// `"mercedBenz"` and `"mercedes benz"` all compare equal.
+  static String _normalise(String value) {
+    const accents = 'àâäéèêëïîôöùûüçñ';
+    const plain = 'aaaeeeeiioouuucn';
+
+    final buffer = StringBuffer();
+    for (final char in value.toLowerCase().split('')) {
+      final accentIndex = accents.indexOf(char);
+      if (accentIndex != -1) {
+        buffer.write(plain[accentIndex]);
+      } else if (RegExp(r'[a-z0-9]').hasMatch(char)) {
+        buffer.write(char);
+      }
+    }
+    return buffer.toString();
   }
 }

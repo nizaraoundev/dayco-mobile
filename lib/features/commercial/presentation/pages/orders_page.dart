@@ -18,8 +18,6 @@ class OrdersPage extends StatelessWidget {
         backgroundColor: ColorManager.backgroundColor,
         appBar: AppBar(
           title: const Text('Commandes'),
-          backgroundColor: ColorManager.primaryColor,
-          foregroundColor: Colors.white,
           bottom: const TabBar(
             isScrollable: true,
             indicatorColor: Colors.white,

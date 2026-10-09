@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'design_tokens.dart';
 import 'text_styles.dart';
 
 class ColorManager {
@@ -9,11 +10,13 @@ class ColorManager {
   static const Color primaryColor = Color(0xFF008DD2); // Blue
   static const Color primaryVariant = Color(0xFF395EA7); // Environmental Blue
   static const Color secondaryColor = Color(0xFF7ED6C9); // Teal
-  static const Color secondaryVariant =
-      Color(0xFF009846); // Environmental Green
+  static const Color secondaryVariant = Color(
+    0xFF009846,
+  ); // Environmental Green
   static const Color tertiaryColor = Color(0xFFFBCB07); // Yellow
-  static const Color tertiaryVariant =
-      Color(0xFFFFED00); // Environmental Yellow
+  static const Color tertiaryVariant = Color(
+    0xFFFFED00,
+  ); // Environmental Yellow
 
   // Status colors using updated palette
   static const Color successColor = Color(0xFF009846); // Environmental Green
@@ -23,8 +26,9 @@ class ColorManager {
 
   // Neutral colors
   static const Color backgroundColor = Color(0xFFFEFEFE); // Environmental White
-  static const Color surfaceColor =
-      Color(0xFFE7EBEB); // Environmental Light Gray
+  static const Color surfaceColor = Color(
+    0xFFE7EBEB,
+  ); // Environmental Light Gray
   static const Color cardColor = Color(0xFFFFFFFF); // Pure White
   static const Color dividerColor = Color(0xFF626D77); // Environmental Gray
 
@@ -94,21 +98,39 @@ class ColorManager {
       scaffoldBackgroundColor: backgroundColor,
 
       // App bar theme
+      // The brand bar, defined once.
+      //
+      // This used to be a white bar with dark text, but it never took effect
+      // (the theme was not applied), so four pages each hand-set a blue
+      // `AppBar` instead and one did not — the app had two different bar
+      // styles depending on the screen. Blue is the de facto standard, so it
+      // lives here now and the per-page overrides are gone.
+      //
+      // `brandStrong` rather than `primaryColor`: white title text on
+      // #008DD2 is 3.66:1 and fails AA; on #007DBB it is 4.52:1.
       appBarTheme: AppBarTheme(
-        backgroundColor: surfaceColor,
-        foregroundColor: textPrimary,
+        backgroundColor: AppPalette.brandStrong,
+        foregroundColor: AppPalette.onBrand,
         elevation: 0,
-        scrolledUnderElevation: 1,
+        scrolledUnderElevation: 0,
         shadowColor: shadowColor,
         surfaceTintColor: Colors.transparent,
-        titleTextStyle: AppTextStyles.appBarTitle.copyWith(color: textPrimary),
-        toolbarTextStyle: AppTextStyles.bodyMedium.copyWith(color: textPrimary),
-        iconTheme: const IconThemeData(color: textPrimary, size: 24),
-        actionsIconTheme: const IconThemeData(color: textPrimary, size: 24),
+        titleTextStyle: AppTextStyles.appBarTitle.copyWith(
+          color: AppPalette.onBrand,
+        ),
+        toolbarTextStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppPalette.onBrand,
+        ),
+        iconTheme: const IconThemeData(color: AppPalette.onBrand, size: 24),
+        actionsIconTheme: const IconThemeData(
+          color: AppPalette.onBrand,
+          size: 24,
+        ),
         systemOverlayStyle: const SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.dark,
-          statusBarBrightness: Brightness.light,
+          // Light icons, because the bar behind them is now dark.
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
         ),
       ),
 
@@ -129,55 +151,65 @@ class ColorManager {
         elevation: 2,
         shadowColor: shadowColor,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(8),
       ),
 
       // Button themes
+      // Button themes.
+      //
+      // These use the accessible colour roles, not the raw brand blue: white
+      // on `primaryColor` (#008DD2) measures 3.66:1 and fails WCAG AA, while
+      // `brandStrong` clears it at 4.52:1 in the same hue. Radius is the
+      // shared `AppRadius.md` (12) so a themed button matches an `AppButton`
+      // sitting next to it — they were 8 and 12 before, which is why buttons
+      // never looked like they came from the same app.
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: primaryColor,
-          foregroundColor: textOnPrimary,
-          elevation: 2,
+          backgroundColor: AppPalette.brandStrong,
+          foregroundColor: AppPalette.onBrand,
+          elevation: 0,
           shadowColor: shadowColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
           textStyle: AppTextStyles.buttonText,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          minimumSize: const Size(120, 48),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          minimumSize: const Size(0, AppA11y.minTouchTarget),
         ),
       ),
 
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: primaryColor,
-          side: const BorderSide(color: primaryColor, width: 1.5),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          foregroundColor: AppPalette.brandInk,
+          side: const BorderSide(color: AppPalette.brandInk, width: 1.5),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
           textStyle: AppTextStyles.buttonText,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          minimumSize: const Size(120, 48),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          minimumSize: const Size(0, AppA11y.minTouchTarget),
         ),
       ),
 
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: primaryColor,
+          foregroundColor: AppPalette.brandInk,
           textStyle: AppTextStyles.buttonText,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xs,
           ),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
+          minimumSize: const Size(0, AppA11y.minTouchTarget),
         ),
       ),
 
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: primaryColor,
-        foregroundColor: textOnPrimary,
+        backgroundColor: AppPalette.brandStrong,
+        foregroundColor: AppPalette.onBrand,
         elevation: 4,
         shape: CircleBorder(),
       ),
@@ -187,30 +219,32 @@ class ColorManager {
         filled: true,
         fillColor: surfaceColor,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: AppRadius.mdAll,
           borderSide: const BorderSide(color: dividerColor),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: AppRadius.mdAll,
           borderSide: const BorderSide(color: dividerColor),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: AppRadius.mdAll,
           borderSide: const BorderSide(color: primaryColor, width: 2),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: AppRadius.mdAll,
           borderSide: const BorderSide(color: errorColor),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: AppRadius.mdAll,
           borderSide: const BorderSide(color: errorColor, width: 2),
         ),
         labelStyle: AppTextStyles.labelMedium.copyWith(color: textSecondary),
         hintStyle: AppTextStyles.bodyMedium.copyWith(color: textTertiary),
         errorStyle: AppTextStyles.bodySmall.copyWith(color: errorColor),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
       ),
 
       // Dialog theme
@@ -219,13 +253,13 @@ class ColorManager {
         elevation: 8,
         shadowColor: shadowColor,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        titleTextStyle: AppTextStyles.headlineSmall.copyWith(
+          color: textPrimary,
         ),
-        titleTextStyle:
-            AppTextStyles.headlineSmall.copyWith(color: textPrimary),
-        contentTextStyle:
-            AppTextStyles.bodyMedium.copyWith(color: textSecondary),
+        contentTextStyle: AppTextStyles.bodyMedium.copyWith(
+          color: textSecondary,
+        ),
       ),
 
       // Bottom sheet theme
@@ -242,11 +276,10 @@ class ColorManager {
       // Snack bar theme
       snackBarTheme: SnackBarThemeData(
         backgroundColor: textPrimary,
-        contentTextStyle:
-            AppTextStyles.bodyMedium.copyWith(color: textOnPrimary),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
+        contentTextStyle: AppTextStyles.bodyMedium.copyWith(
+          color: textOnPrimary,
         ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         behavior: SnackBarBehavior.floating,
         elevation: 4,
       ),
@@ -268,11 +301,10 @@ class ColorManager {
         backgroundColor: Color(0xFFF1F3F4),
         selectedColor: primaryColor,
         labelStyle: AppTextStyles.labelSmall.copyWith(color: textPrimary),
-        secondaryLabelStyle:
-            AppTextStyles.labelSmall.copyWith(color: textOnPrimary),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+        secondaryLabelStyle: AppTextStyles.labelSmall.copyWith(
+          color: textOnPrimary,
         ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         elevation: 0,
         pressElevation: 2,
       ),
@@ -285,10 +317,7 @@ class ColorManager {
       ),
 
       // Icon theme
-      iconTheme: const IconThemeData(
-        color: textSecondary,
-        size: 24,
-      ),
+      iconTheme: const IconThemeData(color: textSecondary, size: 24),
 
       // Text theme
       textTheme: const TextTheme(
@@ -326,9 +355,9 @@ class ColorManager {
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return primaryColor.withOpacity(0.5);
+            return primaryColor.withValues(alpha: 0.5);
           }
-          return Colors.grey.withOpacity(0.3);
+          return Colors.grey.withValues(alpha: 0.3);
         }),
       ),
 
@@ -341,11 +370,9 @@ class ColorManager {
           return Colors.transparent;
         }),
         checkColor: WidgetStateProperty.all(textOnPrimary),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(4),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
       ),
-  
+
       // Radio theme
       radioTheme: RadioThemeData(
         fillColor: WidgetStateProperty.resolveWith((states) {
@@ -361,10 +388,11 @@ class ColorManager {
         activeTrackColor: primaryColor,
         inactiveTrackColor: dividerColor,
         thumbColor: primaryColor,
-        overlayColor: primaryColor.withOpacity(0.2),
+        overlayColor: primaryColor.withValues(alpha: 0.2),
         valueIndicatorColor: primaryColor,
-        valueIndicatorTextStyle:
-            AppTextStyles.labelSmall.copyWith(color: textOnPrimary),
+        valueIndicatorTextStyle: AppTextStyles.labelSmall.copyWith(
+          color: textOnPrimary,
+        ),
       ),
     );
   }
@@ -415,10 +443,12 @@ class ColorManager {
         scrolledUnderElevation: 1,
         shadowColor: shadowColor,
         surfaceTintColor: Colors.transparent,
-        titleTextStyle:
-            AppTextStyles.appBarTitle.copyWith(color: darkTextPrimary),
-        toolbarTextStyle:
-            AppTextStyles.bodyMedium.copyWith(color: darkTextPrimary),
+        titleTextStyle: AppTextStyles.appBarTitle.copyWith(
+          color: darkTextPrimary,
+        ),
+        toolbarTextStyle: AppTextStyles.bodyMedium.copyWith(
+          color: darkTextPrimary,
+        ),
         iconTheme: const IconThemeData(color: darkTextPrimary, size: 24),
         actionsIconTheme: const IconThemeData(color: darkTextPrimary, size: 24),
         systemOverlayStyle: const SystemUiOverlayStyle(
@@ -430,20 +460,25 @@ class ColorManager {
 
       // Apply similar theming as light theme but with dark colors
       // ... (continuing with dark theme configurations)
-
       textTheme: TextTheme(
-        displayLarge:
-            AppTextStyles.displayLarge.copyWith(color: darkTextPrimary),
-        displayMedium:
-            AppTextStyles.displayMedium.copyWith(color: darkTextPrimary),
-        displaySmall:
-            AppTextStyles.displaySmall.copyWith(color: darkTextPrimary),
-        headlineLarge:
-            AppTextStyles.headlineLarge.copyWith(color: darkTextPrimary),
-        headlineMedium:
-            AppTextStyles.headlineMedium.copyWith(color: darkTextPrimary),
-        headlineSmall:
-            AppTextStyles.headlineSmall.copyWith(color: darkTextPrimary),
+        displayLarge: AppTextStyles.displayLarge.copyWith(
+          color: darkTextPrimary,
+        ),
+        displayMedium: AppTextStyles.displayMedium.copyWith(
+          color: darkTextPrimary,
+        ),
+        displaySmall: AppTextStyles.displaySmall.copyWith(
+          color: darkTextPrimary,
+        ),
+        headlineLarge: AppTextStyles.headlineLarge.copyWith(
+          color: darkTextPrimary,
+        ),
+        headlineMedium: AppTextStyles.headlineMedium.copyWith(
+          color: darkTextPrimary,
+        ),
+        headlineSmall: AppTextStyles.headlineSmall.copyWith(
+          color: darkTextPrimary,
+        ),
         titleLarge: AppTextStyles.titleLarge.copyWith(color: darkTextPrimary),
         titleMedium: AppTextStyles.titleMedium.copyWith(color: darkTextPrimary),
         titleSmall: AppTextStyles.titleSmall.copyWith(color: darkTextPrimary),
@@ -451,8 +486,9 @@ class ColorManager {
         bodyMedium: AppTextStyles.bodyMedium.copyWith(color: darkTextSecondary),
         bodySmall: AppTextStyles.bodySmall.copyWith(color: darkTextSecondary),
         labelLarge: AppTextStyles.labelLarge.copyWith(color: darkTextSecondary),
-        labelMedium:
-            AppTextStyles.labelMedium.copyWith(color: darkTextSecondary),
+        labelMedium: AppTextStyles.labelMedium.copyWith(
+          color: darkTextSecondary,
+        ),
         labelSmall: AppTextStyles.labelSmall.copyWith(color: darkTextTertiary),
       ),
     );
@@ -465,8 +501,9 @@ class ColorManager {
     'rideWaiting': Color(0xFFFFED00), // Environmental Yellow for waiting states
     'rideCancelled': Color(0xFFE31E24), // Environmental Red for cancelled
     'rideCompleted': Color(0xFF009846), // Environmental Green for completion
-    'walletPositive':
-        Color(0xFF009846), // Environmental Green for positive balance
+    'walletPositive': Color(
+      0xFF009846,
+    ), // Environmental Green for positive balance
     'walletNegative': Color(0xFFE31E24), // Environmental Red for negative
     'driverOnline': Color(0xFF009846), // Environmental Green for online status
     'driverOffline': Color(0xFF898989), // Product Gray for offline
@@ -497,14 +534,18 @@ class ColorManager {
   }
 
   /// Common border radius
-  static const BorderRadius cardBorderRadius =
-      BorderRadius.all(Radius.circular(12));
-  static const BorderRadius buttonBorderRadius =
-      BorderRadius.all(Radius.circular(8));
-  static const BorderRadius inputBorderRadius =
-      BorderRadius.all(Radius.circular(8));
-  static const BorderRadius bottomSheetBorderRadius =
-      BorderRadius.vertical(top: Radius.circular(16));
+  static const BorderRadius cardBorderRadius = BorderRadius.all(
+    Radius.circular(12),
+  );
+  static const BorderRadius buttonBorderRadius = BorderRadius.all(
+    Radius.circular(8),
+  );
+  static const BorderRadius inputBorderRadius = BorderRadius.all(
+    Radius.circular(8),
+  );
+  static const BorderRadius bottomSheetBorderRadius = BorderRadius.vertical(
+    top: Radius.circular(16),
+  );
 
   /// Common shadows
   static const List<BoxShadow> cardShadow = [

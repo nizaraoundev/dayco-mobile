@@ -4,12 +4,19 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../localization/ui_translations.dart';
 import '../controllers/commercial_map_controller.dart';
-import 'commercial_stock_page.dart';
-import '../widgets/brand_selection_widget.dart';
-import '../../data/models/models.dart';
+import '../widgets/client_form_sheet.dart';
+import '../widgets/commercial_drawer.dart';
+import '../widgets/map_action_bar.dart';
 
 class CommercialMapPage extends StatelessWidget {
   const CommercialMapPage({super.key});
+
+  /// Where the map opens before a fix is available: central Tunis, the
+  /// representatives' operating area. Const so it never causes a rebuild.
+  static const CameraPosition _initialCamera = CameraPosition(
+    target: LatLng(36.8065, 10.1815),
+    zoom: 12,
+  );
 
   String _tr(String key) => UiTranslations.t(key);
 
@@ -96,44 +103,6 @@ class CommercialMapPage extends StatelessWidget {
     );
   }
 
-  Widget _drawerActionTile({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    String? subtitle,
-    required VoidCallback onTap,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ListTile(
-        onTap: onTap,
-        leading: Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: iconColor, size: 20),
-        ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: subtitle == null ? null : Text(subtitle),
-        trailing: const Icon(Icons.chevron_right, size: 18, color: Colors.black38),
-      ),
-    );
-  }
-
   Future<void> _openParentClientsPicker(
     CommercialMapController controller,
   ) async {
@@ -170,7 +139,10 @@ class CommercialMapPage extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(
                   _tr('selectParentClients'),
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Flexible(
@@ -180,7 +152,9 @@ class CommercialMapPage extends StatelessWidget {
                     itemBuilder: (_, index) {
                       final client = clients[index];
                       final clientId = _value(client['id']);
-                      final displayName = controller.getClientDisplayName(client);
+                      final displayName = controller.getClientDisplayName(
+                        client,
+                      );
 
                       return CheckboxListTile(
                         value: controller.isParentClientSelected(clientId),
@@ -271,7 +245,10 @@ class CommercialMapPage extends StatelessWidget {
                           const SizedBox(height: 2),
                           Text(
                             '${controller.mySubClients.length} ${_tr('items')}',
-                            style: const TextStyle(fontSize: 12, color: Colors.black54),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
                           ),
                         ],
                       ),
@@ -337,7 +314,11 @@ class CommercialMapPage extends StatelessWidget {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.inbox, size: 44, color: Colors.grey[400]),
+                            Icon(
+                              Icons.inbox,
+                              size: 44,
+                              color: Colors.grey[400],
+                            ),
                             const SizedBox(height: 10),
                             Text(
                               _tr('noSubClientsProspects'),
@@ -353,14 +334,17 @@ class CommercialMapPage extends StatelessWidget {
                         itemBuilder: (_, index) {
                           final subClient = controller.mySubClients[index];
                           final isProspect = subClient['type'] == 'PROSPECT';
-                          final displayName =
-                              controller.getClientDisplayName(subClient);
+                          final displayName = controller.getClientDisplayName(
+                            subClient,
+                          );
                           final parentIds =
-                              (subClient['parentClientIds'] as List?) ?? const [];
+                              (subClient['parentClientIds'] as List?) ??
+                              const [];
                           final marques =
                               (subClient['marques'] as List?) ?? const [];
-                          final imageUrl =
-                              controller.getClientImageUrl(subClient);
+                          final imageUrl = controller.getClientImageUrl(
+                            subClient,
+                          );
 
                           return Container(
                             decoration: BoxDecoration(
@@ -375,7 +359,9 @@ class CommercialMapPage extends StatelessWidget {
                               ],
                               border: Border(
                                 left: BorderSide(
-                                  color: isProspect ? Colors.blue : Colors.orange,
+                                  color: isProspect
+                                      ? Colors.blue
+                                      : Colors.orange,
                                   width: 4,
                                 ),
                               ),
@@ -397,12 +383,13 @@ class CommercialMapPage extends StatelessWidget {
                                               width: 42,
                                               height: 42,
                                               fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) => Icon(
-                                                isProspect
-                                                    ? Icons.person_outline
-                                                    : Icons.person,
-                                                color: Colors.black45,
-                                              ),
+                                              errorBuilder: (_, __, ___) =>
+                                                  Icon(
+                                                    isProspect
+                                                        ? Icons.person_outline
+                                                        : Icons.person,
+                                                    color: Colors.black45,
+                                                  ),
                                             ),
                                           ),
                                         )
@@ -441,12 +428,14 @@ class CommercialMapPage extends StatelessWidget {
                                           vertical: 4,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: (isProspect
-                                                  ? Colors.blue
-                                                  : Colors.orange)
-                                              .withOpacity(0.16),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
+                                          color:
+                                              (isProspect
+                                                      ? Colors.blue
+                                                      : Colors.orange)
+                                                  .withOpacity(0.16),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
                                         ),
                                         child: Text(
                                           isProspect
@@ -504,10 +493,13 @@ class CommercialMapPage extends StatelessWidget {
                                       onPressed: () {
                                         Get.back();
                                         controller.selectSubClientForEdit(
-                                            subClient);
+                                          subClient,
+                                        );
                                       },
-                                      icon: const Icon(Icons.edit,
-                                          color: Colors.white),
+                                      icon: const Icon(
+                                        Icons.edit,
+                                        color: Colors.white,
+                                      ),
                                       label: Text(
                                         _tr('update'),
                                         style: const TextStyle(
@@ -519,7 +511,8 @@ class CommercialMapPage extends StatelessWidget {
                                         backgroundColor:
                                             ColorManager.primaryColor,
                                         padding: const EdgeInsets.symmetric(
-                                            vertical: 12),
+                                          vertical: 12,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -584,7 +577,9 @@ class CommercialMapPage extends StatelessWidget {
                 Text(
                   _tr('clientsList'),
                   style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.w700),
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -612,8 +607,7 @@ class CommercialMapPage extends StatelessWidget {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    contentPadding:
-                        const EdgeInsets.symmetric(vertical: 12),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -624,8 +618,7 @@ class CommercialMapPage extends StatelessWidget {
                       return const Center(
                         child: Text(
                           'Aucun client ne correspond à la recherche',
-                          style:
-                              TextStyle(fontSize: 13, color: Colors.black54),
+                          style: TextStyle(fontSize: 13, color: Colors.black54),
                         ),
                       );
                     }
@@ -635,14 +628,10 @@ class CommercialMapPage extends StatelessWidget {
                       itemCount: clients.length,
                       itemBuilder: (_, index) {
                         final client = clients[index];
-                        return _buildClientDetailsCard(
-                          controller,
-                          client,
-                          () {
-                            Get.back();
-                            controller.selectClientForLocationUpdate(client);
-                          },
-                        );
+                        return _buildClientDetailsCard(controller, client, () {
+                          Get.back();
+                          controller.selectClientForLocationUpdate(client);
+                        });
                       },
                     );
                   }),
@@ -663,24 +652,24 @@ class CommercialMapPage extends StatelessWidget {
 
     return Scaffold(
       key: scaffoldKey,
-      drawer: _buildMenuDrawer(controller),
+      drawer: CommercialDrawer(
+        controller: controller,
+        onOpenSubClients: () => _openSubClientsManagementSheet(controller),
+      ),
       body: Stack(
         children: [
           Obx(
             () => GoogleMap(
               mapType: controller.selectedMapType.value,
-              initialCameraPosition: CameraPosition(
-                target: controller.currentPosition.value != null
-                    ? LatLng(
-                        controller.currentPosition.value!.latitude,
-                        controller.currentPosition.value!.longitude,
-                      )
-                    : const LatLng(36.8065, 10.1815),
-                zoom: 12,
-              ),
-              onMapCreated: (GoogleMapController mapController) {
-                controller.mapController = mapController;
-              },
+              // Constant by design. This value is read *once*, when the
+              // platform view is created, and ignored afterwards. Previously it
+              // read `controller.currentPosition`, which made this `Obx` depend
+              // on the GPS stream — so every position update rebuilt the whole
+              // map widget for a value that could no longer have any effect.
+              // The camera is moved imperatively instead, via
+              // `controller.attachMapController`.
+              initialCameraPosition: _initialCamera,
+              onMapCreated: controller.attachMapController,
               onTap: controller.onMapTap,
               markers: Set<Marker>.from(controller.markers),
               myLocationEnabled: true,
@@ -689,990 +678,41 @@ class CommercialMapPage extends StatelessWidget {
             ),
           ),
 
-          // Top app bar
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Material(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    elevation: 4,
-                    child: InkWell(
-                      onTap: () => scaffoldKey.currentState?.openDrawer(),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        child: Icon(Icons.menu, color: ColorManager.textPrimary),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      elevation: 4,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        child: Text(
-                          _tr('addClientTitle'),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: ColorManager.textPrimary,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          MapTopBar(
+            title: _tr('addClientTitle'),
+            menuLabel: _tr('menu'),
+            onMenuPressed: () => scaffoldKey.currentState?.openDrawer(),
+          ),
+
+          // Floating controls. The confirm-position button is part of this
+          // stack rather than a separately positioned widget, so it can no
+          // longer overlap the main action bar.
+          Obx(
+            () => MapActionBar(
+              myPositionLabel: _tr('myPosition'),
+              clientsLabel: _tr('myClients'),
+              onMyPosition: controller.fillWithCurrentLocation,
+              onOpenClients: () => _openClientsListSheet(controller),
+              confirmLabel: _tr('confirmThisPosition'),
+              onConfirmPosition:
+                  controller.hasPendingDragPosition.value &&
+                      !controller.showClientForm.value
+                  ? controller.confirmDragPosition
+                  : null,
             ),
           ),
 
-          // Bottom action buttons
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 24,
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: controller.fillWithCurrentLocation,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: ColorManager.primaryColor,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    icon: const Icon(Icons.location_on),
-                    label: Text(
-                      _tr('myPosition'),
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => _openClientsListSheet(controller),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: ColorManager.primaryColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    icon: const Icon(Icons.group),
-                    label: const Text(
-                      'Mes Clients',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Client form overlay
+          // Client form overlay sits last so it covers the floating controls.
           Obx(
             () => controller.showClientForm.value
-                ? _buildClientFormOverlay(controller)
-                : const SizedBox.shrink(),
-          ),
-
-          // Confirm drag position button
-          Obx(
-            () => controller.hasPendingDragPosition.value &&
-                    !controller.showClientForm.value
-                ? Positioned(
-                    left: 16,
-                    right: 16,
-                    bottom: 100,
-                    child: ElevatedButton.icon(
-                      onPressed: controller.confirmDragPosition,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        elevation: 6,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text(
-                        'Confirmer cette position',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 15),
-                      ),
-                    ),
+                ? ClientFormSheet(
+                    controller: controller,
+                    onPickParentClients: () =>
+                        _openParentClientsPicker(controller),
                   )
                 : const SizedBox.shrink(),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildMenuDrawer(CommercialMapController controller) {
-    return Drawer(
-      backgroundColor: Colors.white,
-      child: SafeArea(
-        child: Obx(
-          () => ListView(
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
-            children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 12,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor:
-                          ColorManager.primaryColor.withOpacity(0.15),
-                      child: Icon(Icons.person,
-                          color: ColorManager.primaryColor, size: 26),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            controller.profileData['name']?.isNotEmpty == true
-                                ? controller.profileData['name']!
-                                : '${controller.profileData['nom'] ?? ''} ${controller.profileData['prenom'] ?? ''}'
-                                    .trim(),
-                            style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            controller.profileData['email']?.isNotEmpty == true
-                                ? controller.profileData['email']!
-                                : '-',
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.black54),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    _profileRow('Nom', controller.profileData['nom']),
-                    _profileRow('Prénom', controller.profileData['prenom']),
-                    _profileRow(
-                        'Téléphone', controller.profileData['telephone']),
-                    _profileRow(
-                      _tr('roles'),
-                      controller.profileRoles.isEmpty
-                          ? _tr('noData')
-                          : controller.profileRoles.join(', '),
-                    ),
-                    _profileRow(
-                      _tr('regions'),
-                      controller.profileRegions.isEmpty
-                          ? _tr('noData')
-                          : controller.profileRegions.join(', '),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              _drawerActionTile(
-                icon: Icons.add_business,
-                iconColor: Colors.green,
-                title: _tr('newClientB2B'),
-                subtitle: _tr('createNewClient'),
-                onTap: () {
-                  Get.back();
-                  controller.openClientForm();
-                },
-              ),
-              const SizedBox(height: 2),
-              _drawerActionTile(
-                icon: Icons.person_add,
-                iconColor: Colors.blue,
-                title: _tr('subClientsProspects'),
-                subtitle: _tr('manageSubClientsProspects'),
-                onTap: () {
-                  Get.back();
-                  _openSubClientsManagementSheet(controller);
-                },
-              ),
-              const SizedBox(height: 2),
-              _drawerActionTile(
-                icon: Icons.inventory_2,
-                iconColor: Colors.deepPurple,
-                title: 'Stocks',
-                subtitle: 'Consulter stock et réservations',
-                onTap: () {
-                  Get.back();
-                  Get.to(() => const CommercialStockPage());
-                },
-              ),
-              Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: SwitchListTile(
-                  secondary: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: ColorManager.primaryColor.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(Icons.layers_outlined,
-                        color: ColorManager.primaryColor, size: 20),
-                  ),
-                  title: Text(_tr('hybridMap'),
-                      style:
-                          const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(
-                    controller.selectedMapType.value == MapType.hybrid
-                        ? _tr('hybridOn')
-                        : _tr('hybridOffNormal'),
-                  ),
-                  value:
-                      controller.selectedMapType.value == MapType.hybrid,
-                  onChanged: (isHybrid) {
-                    controller.setMapType(
-                        isHybrid ? MapType.hybrid : MapType.normal);
-                  },
-                  activeThumbColor: ColorManager.primaryColor,
-                ),
-              ),
-              Container(
-                margin: const EdgeInsets.only(top: 4, bottom: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => controller.changeLanguage('fr'),
-                        child: const Text('🇫🇷 FR'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => controller.changeLanguage('ar'),
-                        child: const Text('🇹🇳 AR'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _drawerActionTile(
-                icon: Icons.logout,
-                iconColor: Colors.red,
-                title: _tr('logout'),
-                onTap: () async {
-                  Get.back();
-                  await controller.logout();
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _profileRow(String title, String? value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(color: Colors.black87, fontSize: 13),
-          children: [
-            TextSpan(
-              text: '$title: ',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            TextSpan(
-                text: (value == null || value.isEmpty) ? '-' : value),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildClientFormOverlay(CommercialMapController controller) {
-    return Container(
-      color: Colors.black54,
-      child: Center(
-        child: SingleChildScrollView(
-          child: Container(
-            margin: const EdgeInsets.all(24),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Form(
-              key: controller.clientFormKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.business,
-                          color: ColorManager.primaryColor, size: 28),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Obx(
-                          () => Text(
-                            controller.registrationType.value == 'sub_client'
-                                ? 'Sub-Client / Prospect'
-                                : _tr('newClientB2B'),
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: ColorManager.textPrimary,
-                            ),
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: controller.closeClientForm,
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  Obx(
-                    () => controller.registrationType.value == 'b2b'
-                        ? Column(
-                            children: [
-                              TextFormField(
-                                controller: controller.codeClientController,
-                                enabled: controller
-                                    .isFieldEditableForCommercialUpdate(
-                                        'codeClient'),
-                                decoration: InputDecoration(
-                                  labelText: _tr('codeClientOptional'),
-                                  prefixIcon: Icon(Icons.tag,
-                                      color: ColorManager.primaryColor),
-                                  border: OutlineInputBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12)),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller:
-                                    controller.raisonSocialeController,
-                                enabled: controller
-                                    .isFieldEditableForCommercialUpdate(
-                                        'raisonSociale'),
-                                decoration: InputDecoration(
-                                  labelText: _tr('raisonSocialeOptional'),
-                                  prefixIcon: Icon(Icons.business,
-                                      color: ColorManager.primaryColor),
-                                  border: OutlineInputBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12)),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller:
-                                    controller.matriculeFiscalController,
-                                enabled: controller
-                                    .isFieldEditableForCommercialUpdate(
-                                        'matriculeFiscal'),
-                                decoration: InputDecoration(
-                                  labelText:
-                                      _tr('matriculeFiscalOptional'),
-                                  prefixIcon: Icon(Icons.badge,
-                                      color: ColorManager.primaryColor),
-                                  border: OutlineInputBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12)),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-
-                  Obx(
-                    () => controller.registrationType.value == 'sub_client'
-                        ? Column(
-                            children: [
-                              TextFormField(
-                                controller: controller.nomController,
-                                decoration: InputDecoration(
-                                  labelText: 'Nom',
-                                  prefixIcon: Icon(Icons.person_outline,
-                                      color: ColorManager.primaryColor),
-                                  border: OutlineInputBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12)),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller: controller.prenomController,
-                                decoration: InputDecoration(
-                                  labelText: 'Prénom',
-                                  prefixIcon: Icon(Icons.badge_outlined,
-                                      color: ColorManager.primaryColor),
-                                  border: OutlineInputBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12)),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller: controller.nomAgenceController,
-                                decoration: InputDecoration(
-                                  labelText: 'Agence',
-                                  prefixIcon: Icon(Icons.store_outlined,
-                                      color: ColorManager.primaryColor),
-                                  border: OutlineInputBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12)),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              if (!controller.isProspectFormMode.value) ...[
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    border:
-                                        Border.all(color: Colors.black12),
-                                    borderRadius:
-                                        BorderRadius.circular(12),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _tr('parentClients'),
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Obx(() {
-                                        final selectedParents = controller
-                                            .getSelectedParentClients();
-                                        if (selectedParents.isEmpty) {
-                                          return Text(
-                                            _tr('noneSelectedProspectHint'),
-                                            style: const TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.black54),
-                                          );
-                                        }
-                                        return Wrap(
-                                          spacing: 6,
-                                          runSpacing: 6,
-                                          children:
-                                              selectedParents.map((parent) {
-                                            final id = _value(parent['id']);
-                                            return Chip(
-                                              label: Text(
-                                                controller
-                                                    .getClientDisplayName(
-                                                        parent),
-                                              ),
-                                              onDeleted: () => controller
-                                                  .toggleParentClientSelection(
-                                                      id),
-                                            );
-                                          }).toList(),
-                                        );
-                                      }),
-                                      const SizedBox(height: 10),
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: OutlinedButton.icon(
-                                          onPressed: () =>
-                                              _openParentClientsPicker(
-                                                  controller),
-                                          icon: const Icon(
-                                              Icons.group_add_outlined),
-                                          label: Text(
-                                              _tr('selectParentClients')),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-                            ],
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-
-                  TextFormField(
-                    controller: controller.telephoneController,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      labelText: _tr('phoneOptional'),
-                      prefixIcon: Icon(Icons.phone,
-                          color: ColorManager.primaryColor),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  Obx(
-                    () => controller.registrationType.value == 'b2b'
-                        ? Column(
-                            children: [
-                              TextFormField(
-                                controller: controller.emailController,
-                                keyboardType: TextInputType.emailAddress,
-                                decoration: InputDecoration(
-                                  labelText: _tr('emailOptional'),
-                                  prefixIcon: Icon(Icons.email,
-                                      color: ColorManager.primaryColor),
-                                  border: OutlineInputBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12)),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-
-                  Obx(
-                    () => controller.registrationType.value == 'b2b' ||
-                            controller.registrationType.value == 'sub_client'
-                        ? Column(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  border:
-                                      Border.all(color: Colors.grey[300]!),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          'Marques automobiles',
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                            color: ColorManager.textPrimary,
-                                          ),
-                                        ),
-                                        Obx(
-                                          () => Container(
-                                            padding:
-                                                const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: ColorManager.primaryColor
-                                                  .withOpacity(0.2),
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                            child: Text(
-                                              '${controller.selectedBrands.length}',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color:
-                                                    ColorManager.primaryColor,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Obx(
-                                      () => controller
-                                              .selectedBrands.isEmpty
-                                          ? Text(
-                                              'Aucune marque sélectionnée',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey[600],
-                                                fontStyle: FontStyle.italic,
-                                              ),
-                                            )
-                                          : Wrap(
-                                              spacing: 6,
-                                              runSpacing: 6,
-                                              children: controller
-                                                  .selectedBrands
-                                                  .map((brand) {
-                                                return Chip(
-                                                  label: Text(
-                                                    brand.displayName,
-                                                    style: const TextStyle(
-                                                        fontSize: 11),
-                                                  ),
-                                                  backgroundColor:
-                                                      ColorManager.primaryColor
-                                                          .withOpacity(0.1),
-                                                  labelStyle: TextStyle(
-                                                    color: ColorManager
-                                                        .primaryColor,
-                                                    fontWeight:
-                                                        FontWeight.w500,
-                                                  ),
-                                                  onDeleted: () {
-                                                    controller
-                                                        .toggleBrand(brand);
-                                                  },
-                                                );
-                                              }).toList(),
-                                            ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton(
-                                        onPressed: controller
-                                                    .registrationType
-                                                    .value ==
-                                                'sub_client' ||
-                                            controller
-                                                .canEditBrandsForCurrentClient
-                                            ? () {
-                                                Get.bottomSheet(
-                                                  SafeArea(
-                                                    child: Padding(
-                                                      padding:
-                                                          const EdgeInsets.all(
-                                                              12),
-                                                      child: Container(
-                                                        clipBehavior:
-                                                            Clip.antiAlias,
-                                                        decoration: BoxDecoration(
-                                                          color: Colors.white,
-                                                          borderRadius:
-                                                              BorderRadius
-                                                                  .circular(20),
-                                                        ),
-                                                        child: Stack(
-                                                          children: [
-                                                            BrandSelectionWidget(
-                                                              initialBrands:
-                                                                  CarBrandsModel(
-                                                                selectedBrands:
-                                                                    controller
-                                                                        .selectedBrands,
-                                                              ),
-                                                              onBrandsChanged:
-                                                                  (brands) {
-                                                                controller
-                                                                    .selectedBrands
-                                                                    .clear();
-                                                                controller
-                                                                    .selectedBrands
-                                                                    .addAll(brands
-                                                                        .selectedBrands);
-                                                              },
-                                                              isEditing: true,
-                                                            ),
-                                                            Positioned(
-                                                              top: 8,
-                                                              right: 8,
-                                                              child: Material(
-                                                                color: Colors
-                                                                    .black12,
-                                                                borderRadius:
-                                                                    BorderRadius
-                                                                        .circular(
-                                                                            16),
-                                                                child: InkWell(
-                                                                  borderRadius:
-                                                                      BorderRadius
-                                                                          .circular(
-                                                                              16),
-                                                                  onTap:
-                                                                      Get.back,
-                                                                  child:
-                                                                      const Padding(
-                                                                    padding:
-                                                                        EdgeInsets.all(6),
-                                                                    child: Icon(
-                                                                        Icons
-                                                                            .close,
-                                                                        size:
-                                                                            18),
-                                                                  ),
-                                                                ),
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  isScrollControlled: true,
-                                                  backgroundColor:
-                                                      Colors.transparent,
-                                                  shape:
-                                                      const RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.vertical(
-                                                            top: Radius.circular(
-                                                                20)),
-                                                  ),
-                                                );
-                                              }
-                                            : null,
-                                        child: const Text(
-                                            'Sélectionner les marques'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-
-                  TextFormField(
-                    controller: controller.noteController,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      labelText: 'Note',
-                      prefixIcon: Icon(Icons.note_alt_outlined,
-                          color: ColorManager.primaryColor),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  Obx(
-                    () => Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: controller.isPickingImage.value
-                                    ? null
-                                    : controller.pickImageFromCamera,
-                                icon: const Icon(Icons.camera_alt),
-                                label: Text(_tr('takePhoto')),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: controller.isPickingImage.value
-                                    ? null
-                                    : controller.pickImageFromGallery,
-                                icon: const Icon(Icons.photo_library),
-                                label: Text(_tr('gallery')),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (controller.selectedImageBytes.value !=
-                            null) ...[
-                          const SizedBox(height: 12),
-                          Container(
-                            height: 120,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.black12),
-                            ),
-                            child: Stack(
-                              children: [
-                                Positioned.fill(
-                                  child: ClipRRect(
-                                    borderRadius:
-                                        BorderRadius.circular(12),
-                                    child: Image.memory(
-                                      controller
-                                          .selectedImageBytes.value!,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  right: 6,
-                                  top: 6,
-                                  child: Material(
-                                    color: Colors.black54,
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: InkWell(
-                                      borderRadius:
-                                          BorderRadius.circular(14),
-                                      onTap:
-                                          controller.removeSelectedImage,
-                                      child: const Padding(
-                                        padding: EdgeInsets.all(4),
-                                        child: Icon(Icons.close,
-                                            color: Colors.white, size: 18),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: controller.pickLocationFromMap,
-                      icon: const Icon(Icons.map_outlined),
-                      label: const Text('Choose location on map'),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: ColorManager.primaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Obx(
-                      () => Row(
-                        children: [
-                          Icon(Icons.location_on,
-                              color: ColorManager.primaryColor),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              controller.selectedLocation.value != null
-                                  ? 'Lat: ${controller.selectedLocation.value!.latitude.toStringAsFixed(6)}\nLng: ${controller.selectedLocation.value!.longitude.toStringAsFixed(6)}'
-                                  : _tr('touchMapBoutique'),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: ColorManager.textSecondary,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  Obx(
-                    () => ElevatedButton(
-                      onPressed: controller.isCreatingClient.value
-                          ? null
-                          : controller.submitClientForm,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: ColorManager.primaryColor,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: controller.isCreatingClient.value
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : Obx(() {
-                              final isUpdateMode = controller
-                                      .selectedClientForUpdate.value !=
-                                  null;
-                              return Text(
-                                isUpdateMode
-                                    ? controller.clientLocationActionLabel
-                                    : _tr('createClient'),
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                              );
-                            }),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -1689,7 +729,8 @@ class _ExpandableClientCard extends StatefulWidget {
     required IconData icon,
     required String label,
     required dynamic value,
-  }) metaChipBuilder;
+  })
+  metaChipBuilder;
   final String Function(dynamic raw) formatDate;
   final bool Function(dynamic value) hasValue;
   final String Function(dynamic value) valueStr;
@@ -1756,7 +797,9 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
     } catch (_) {}
     final hasLocation = lat != null && lng != null && lat != 0.0 && lng != 0.0;
 
-    final locationColor = hasLocation ? const Color(0xFF22C55E) : const Color(0xFFF59E0B);
+    final locationColor = hasLocation
+        ? const Color(0xFF22C55E)
+        : const Color(0xFFF59E0B);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1785,8 +828,10 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
               child: InkWell(
                 onTap: widget.onTap,
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
                   child: Row(
                     children: [
                       _buildAvatar(controller, client, imageUrl),
@@ -1835,7 +880,9 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
                                 const SizedBox(width: 8),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: isActive
                                         ? Colors.green.withOpacity(0.1)
@@ -1911,8 +958,9 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
                                   color: Colors.grey.shade100,
                                   alignment: Alignment.center,
                                   child: const Icon(
-                                      Icons.broken_image_outlined,
-                                      color: Colors.black38),
+                                    Icons.broken_image_outlined,
+                                    color: Colors.black38,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1923,12 +971,15 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
                         // GPS row
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                           decoration: BoxDecoration(
                             color: locationColor.withOpacity(0.06),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                                color: locationColor.withOpacity(0.2)),
+                              color: locationColor.withOpacity(0.2),
+                            ),
                           ),
                           child: Row(
                             children: [
@@ -1943,7 +994,7 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
                               Expanded(
                                 child: Text(
                                   hasLocation
-                                      ? '${lat!.toStringAsFixed(5)}, ${lng!.toStringAsFixed(5)}'
+                                      ? '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
                                       : 'Aucune position — appuyez sur Modifier',
                                   style: TextStyle(
                                     fontSize: 11,
@@ -2015,19 +1066,20 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
                           width: double.infinity,
                           child: TextButton.icon(
                             onPressed: widget.onTap,
-                            icon: const Icon(Icons.edit_location_alt,
-                                size: 16),
+                            icon: const Icon(Icons.edit_location_alt, size: 16),
                             label: const Text(
                               'Modifier ce client',
                               style: TextStyle(
-                                  fontSize: 13, fontWeight: FontWeight.w600),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                             style: TextButton.styleFrom(
                               backgroundColor: Colors.grey.shade50,
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 10),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
                             ),
                           ),
                         ),
@@ -2057,7 +1109,10 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
           Text(
             value,
             style: const TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black87),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
           ),
         ],
       ),
@@ -2077,8 +1132,7 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
           color: Colors.grey.shade100,
           borderRadius: BorderRadius.circular(12),
         ),
-        child:
-            const Icon(Icons.business, color: Colors.black38, size: 22),
+        child: const Icon(Icons.business, color: Colors.black38, size: 22),
       );
     }
     return Container(

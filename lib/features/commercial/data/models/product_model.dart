@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/design_tokens.dart';
+
 /// Stock status for products
 enum StockStatus { available, lowStock, outOfStock }
 
@@ -68,15 +70,22 @@ class ProductModel {
     return StockStatus.available;
   }
 
-  /// Get stock status color
+  /// Colour for the stock-status badge.
+  ///
+  /// These come from the app palette rather than Material's defaults so the
+  /// catalogue matches the rest of the product. The Material colours that used
+  /// to be here all failed WCAG AA as label text on white: #4CAF50 at 2.78:1,
+  /// #FF9800 at 2.16:1 and #F44336 at 3.68:1. The replacements clear 4.5:1 and
+  /// reuse the semantic colours the rest of the app already uses for success,
+  /// warning and danger.
   Color get stockStatusColor {
     switch (stockStatus) {
       case StockStatus.available:
-        return const Color(0xFF4CAF50); // Green
+        return AppPalette.successStrong;
       case StockStatus.lowStock:
-        return const Color(0xFFFF9800); // Orange
+        return AppPalette.warningInk;
       case StockStatus.outOfStock:
-        return const Color(0xFFF44336); // Red
+        return AppPalette.danger;
     }
   }
 

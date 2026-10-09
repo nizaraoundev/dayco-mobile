@@ -8,13 +8,22 @@ import 'package:get/get.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../auth/data/models/client_model.dart';
 import '../../../auth/data/services/auth_service.dart';
+import '../../../../core/di/service_locator.dart';
+import '../../../../core/error/failure.dart';
+import '../../../../core/error/result.dart';
 import '../../../../core/services/language_service.dart';
+import '../../../../core/utils/app_logger.dart';
+import '../../../../core/utils/single_flight.dart';
+import '../../../auth/domain/repositories/auth_repository.dart';
+import '../../../cartography/presentation/marker_icon_cache.dart';
+import '../../../clients/domain/entities/client.dart';
+import '../../../clients/domain/entities/geo_position.dart';
+import '../../../clients/domain/repositories/clients_repository.dart';
 import '../../../../localization/ui_translations.dart';
 import '../../../../routes/app_routes.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import '../../data/models/brands_model.dart';
+import '../../../../core/catalog/car_brand.dart';
 
 class CommercialMapController extends GetxController {
   static const String _draftStorageKey = 'commercial_client_draft';
@@ -24,6 +33,47 @@ class CommercialMapController extends GetxController {
 
   final AuthService _authService = AuthService();
   final ImagePicker _imagePicker = ImagePicker();
+
+  /// The shared portfolio source of truth. Resolved from the service locator
+  /// so this controller reads the same cache the initialization screen filled.
+  final ClientsRepository _clients = locator<ClientsRepository>();
+  final AuthRepository _auth = locator<AuthRepository>();
+
+  /// Shared marker-icon cache — the same instance the initialization screen
+  /// pre-warmed, so the first marker paint is a cache hit.
+  final MarkerIconCache _icons = locator<MarkerIconCache>();
+
+  /// Serialises marker rebuilds so a stale run cannot overwrite a newer one.
+  final LatestWins _markerRefresh = LatestWins();
+
+  /// Coalesces draft writes while the representative is typing.
+  Timer? _draftSaveTimer;
+  static const Duration _draftSaveDebounce = Duration(milliseconds: 600);
+
+  /// User feedback, in one place.
+  ///
+  /// The colours and durations were repeated at every `Get.snackbar` call site,
+  /// which is why success was sometimes green-for-2s and sometimes green with
+  /// no duration at all.
+  void _showSuccess(String message) {
+    Get.snackbar(
+      _tr('success'),
+      message,
+      backgroundColor: Colors.green,
+      colorText: Colors.white,
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  void _showError(String message) {
+    Get.snackbar(
+      _tr('error'),
+      message,
+      backgroundColor: Colors.red,
+      colorText: Colors.white,
+      duration: const Duration(seconds: 3),
+    );
+  }
 
   // Map controller
   GoogleMapController? mapController;
@@ -172,10 +222,27 @@ class CommercialMapController extends GetxController {
     _restoreDraft();
     _loadRegisteredPins();
     _loadSubmittedRecords();
-    _loadConnectedProfile();
-    _getCurrentLocation();
-    unawaited(loadMyClients());
-    unawaited(loadAllSubClientsAndProspectsForCommercial());
+    unawaited(_bootstrap());
+  }
+
+  /// Startup work, ordered by its real dependencies.
+  ///
+  /// The profile is awaited before the portfolio because the portfolio
+  /// endpoints are keyed by the representative's id; the previous version
+  /// fired them off together, so the id was still empty when the fetch ran.
+  ///
+  /// By the time this runs the post-login initialization screen has normally
+  /// already loaded the portfolio, so [_loadPortfolio] is answered from cache
+  /// and the map paints immediately.
+  Future<void> _bootstrap() async {
+    await _loadConnectedProfile();
+
+    // Independent of each other: the portfolio is network-bound, the position
+    // is sensor-bound.
+    await Future.wait([
+      _loadPortfolio(),
+      _getCurrentLocation(),
+    ]);
   }
 
   Future<void> _loadConnectedProfile() async {
@@ -250,26 +317,76 @@ class CommercialMapController extends GetxController {
     await languageService.setLanguage(languageCode);
   }
 
+  /// The active UI language code.
+  ///
+  /// Reads the observable directly so a widget inside an `Obx` rebuilds when
+  /// the language changes. The drawer's language selector needs this to show
+  /// which option is active — previously nothing in the UI did, so both
+  /// language buttons looked identical whichever one was in effect.
+  String get currentLanguageCode =>
+      Get.find<LanguageService>().currentLanguage.value;
+
   void setMapType(MapType mapType) {
     selectedMapType.value = mapType;
   }
 
-  Future<void> loadMyClients() async {
+  /// The signed-in representative's id.
+  ///
+  /// Read from [AuthRepository] first. The previous code read
+  /// `profileData['id']`, which `onInit` populated asynchronously *without
+  /// awaiting it* — so this was reliably empty on the first call and the B2B
+  /// fetch silently fell back to `/my-clients` instead of the
+  /// commercial-scoped endpoint.
+  String get _commercialId {
+    final fromSession = _auth.currentUser?.id.trim() ?? '';
+    if (fromSession.isNotEmpty) return fromSession;
+    return profileData['id']?.trim() ?? '';
+  }
+
+  /// Loads the portfolio and splits it into the two lists the UI binds to.
+  ///
+  /// Both [loadMyClients] and [loadAllSubClientsAndProspectsForCommercial]
+  /// funnel through here, and here goes through [ClientsRepository] — which
+  /// collapses concurrent calls and serves a fresh cache without touching the
+  /// network. That is what stops `onInit` (which calls both) and the
+  /// post-login initialization screen from each fetching the same data.
+  Future<void> _loadPortfolio({bool forceRefresh = false}) async {
     isLoadingMyClients.value = true;
     try {
-      final commercialId = profileData['id']?.trim() ?? '';
-      final clients = commercialId.isNotEmpty
-          ? await _authService.getClientsByCommercialId(commercialId)
-          : await _authService.getMyClients();
-      myClients.assignAll(clients);
+      final result = await _clients.loadPortfolio(
+        commercialId: _commercialId,
+        forceRefresh: forceRefresh,
+      );
 
-      // Validate selected parent IDs still exist
+      if (result case FailureResult<List<Client>>(:final failure)) {
+        AppLogger.warn('Portfolio unavailable', error: failure);
+        return;
+      }
+
+      final clients = result.valueOrNull ?? const <Client>[];
+
+      // `toUiMap` keeps the original backend payload and overlays the
+      // normalised fields, so the existing map-based screens see everything
+      // they did before plus correctly parsed coordinates and type.
+      final b2b = clients
+          .where((client) => client.kind.isB2b)
+          .map((client) => client.toUiMap())
+          .toList();
+      final subs = clients
+          .where((client) => client.kind.usesSubClientApi)
+          .map((client) => client.toUiMap())
+          .toList();
+
+      myClients.assignAll(b2b);
+      mySubClients.assignAll(subs);
+
+      // Drop any selected parent that no longer exists in the portfolio.
       selectedParentClientIds.removeWhere(
-        (id) => !clients.any((client) => _safeString(client['id']) == id),
+        (id) => !b2b.any((client) => _safeString(client['id']) == id),
       );
 
       final selectedId = selectedParentClientId.value.trim();
-      final hasSelected = clients.any(
+      final hasSelected = b2b.any(
         (client) => _safeString(client['id']) == selectedId,
       );
       if (!hasSelected) {
@@ -277,13 +394,14 @@ class CommercialMapController extends GetxController {
         parentClientIdController.clear();
       }
 
-      _syncApiClientsToPins(clients);
-    } catch (e) {
-      debugPrint('Failed to load my clients: $e');
+      _syncApiClientsToPins(b2b);
+      await _refreshMarkers();
     } finally {
       isLoadingMyClients.value = false;
     }
   }
+
+  Future<void> loadMyClients() => _loadPortfolio();
 
   Future<Position?> refreshCurrentPosition({
     bool updateSelectionIfEmpty = false,
@@ -341,28 +459,6 @@ class CommercialMapController extends GetxController {
     }
   }
 
-  Future<void> loadClientsByCommercialId(String commercialId) async {
-    try {
-      final clients = await _authService.getClientsByCommercialId(commercialId);
-      myClients.assignAll(clients);
-      _syncApiClientsToPins(clients);
-    } catch (e) {
-      debugPrint('Failed to load clients by commercial id: $e');
-    }
-  }
-
-  Future<Map<String, dynamic>> getClientDetails(String clientId) {
-    return _authService.getClientById(clientId);
-  }
-
-  Future<List<Map<String, dynamic>>> loadSubClients(
-    String parentClientId,
-  ) async {
-    final subClients = await _authService.getSubClientsByParent(parentClientId);
-    mySubClients.assignAll(subClients);
-    return subClients;
-  }
-
   Future<void> loadAllSubClientsForSelectedParents() async {
     try {
       if (selectedParentClientIds.isEmpty) {
@@ -370,68 +466,45 @@ class CommercialMapController extends GetxController {
         return;
       }
 
-      final allSubClients = <Map<String, dynamic>>[];
-      for (final parentId in selectedParentClientIds) {
-        final subClients = await _authService.getSubClientsByParent(parentId);
-        allSubClients.addAll(subClients);
-      }
+      // One request per parent, issued concurrently rather than in sequence —
+      // the previous loop awaited each in turn, so selecting four parents cost
+      // four round-trips end to end.
+      final responses = await Future.wait(
+        selectedParentClientIds.map(_clients.fetchSubClientsOfParent),
+      );
 
-      // Remove duplicates by ID
-      final uniqueSubClients = <String, Map<String, dynamic>>{};
-      for (final subClient in allSubClients) {
-        final id = _safeString(subClient['id']);
-        if (id.isNotEmpty) {
-          uniqueSubClients[id] = subClient;
+      final uniqueSubClients = <String, Client>{};
+      for (final response in responses) {
+        if (response case FailureResult<List<Client>>(:final failure)) {
+          AppLogger.warn('Sub-clients of a parent unavailable', error: failure);
+          continue;
+        }
+        for (final subClient in response.valueOrNull ?? const <Client>[]) {
+          if (subClient.id.isNotEmpty) uniqueSubClients[subClient.id] = subClient;
         }
       }
 
-      mySubClients.assignAll(uniqueSubClients.values.toList());
-      // Refresh map markers to show sub-clients
+      mySubClients.assignAll(
+        uniqueSubClients.values.map((client) => client.toUiMap()).toList(),
+      );
       await _refreshMarkers();
-    } catch (e) {
-      debugPrint('Failed to load sub-clients: $e');
+    } finally {
+      // Nothing to unwind; the guard above returns early on an empty selection.
     }
   }
 
   // Load all sub-clients and prospects for the current commercial
-  Future<void> loadAllSubClientsAndProspectsForCommercial() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final commercialId = prefs.getString('connected_user_id');
+  /// Sub-clients and prospects come from the same portfolio load as the B2B
+  /// clients, so this shares [_loadPortfolio] rather than issuing its own
+  /// request. Calling it alongside [loadMyClients] now costs one fetch, not two.
+  Future<void> loadAllSubClientsAndProspectsForCommercial() => _loadPortfolio();
 
-      if (commercialId == null || commercialId.isEmpty) {
-        debugPrint('No commercial ID found');
-        return;
-      }
-
-      final allClients = await _authService.getSubClientsByCommercial(
-        commercialId,
-      );
-      mySubClients.assignAll(allClients);
-      // Refresh map markers to show all sub-clients and prospects
-      await _refreshMarkers();
-    } catch (e) {
-      debugPrint('Failed to load sub-clients/prospects: $e');
-    }
-  }
-
-  Future<Map<String, dynamic>> getSubClientDetails(String subClientId) {
-    return _authService.getSubClientById(subClientId);
-  }
-
-  Future<Map<String, dynamic>> updateSubClient({
-    required String subClientId,
-    required Map<String, dynamic> payload,
-  }) {
-    return _authService.updateSubClient(
-      subClientId: subClientId,
-      payload: payload,
-    );
-  }
-
-  Future<void> deleteSubClient(String subClientId) {
-    return _authService.deleteSubClient(subClientId);
-  }
+  /// Deletes a sub-client or prospect.
+  ///
+  /// Through [ClientsRepository], so the cached portfolio drops it immediately
+  /// and every screen reading that cache stays in agreement.
+  Future<Result<void>> deleteSubClient(String subClientId) =>
+      _clients.deleteSubClient(subClientId);
 
   // Select a sub-client/prospect for editing
   void selectSubClientForEdit(Map<String, dynamic> subClient) {
@@ -478,94 +551,56 @@ class CommercialMapController extends GetxController {
   }
 
   // Update sub-client/prospect from form and handle type conversion
+  /// Applies the open form to the selected sub-client or prospect.
+  ///
+  /// Through [ClientsRepository], which also handles the type conversion the
+  /// backend derives from parentage: clearing every parent turns a sub-client
+  /// into a `PROSPECT`, and adding one converts it back.
   Future<void> updateSubClientFromForm() async {
+    final selected = selectedClientForUpdate.value;
+    final subClientId = _safeString(selected?['id']);
+
+    if (selected == null || subClientId.isEmpty) {
+      _showError(_tr('noData'));
+      return;
+    }
+
+    isCreatingClient.value = true;
     try {
-      final selectedSubClient = selectedClientForUpdate.value;
-      if (selectedSubClient == null) {
-        throw Exception(_tr('noData'));
-      }
-
-      final subClientId = _safeString(selectedSubClient['id']);
-      if (subClientId.isEmpty) {
-        throw Exception(_tr('noData'));
-      }
-
-      isCreatingClient.value = true;
-
-      final payload = <String, dynamic>{
-        'nom': nomController.text.trim(),
-        'prenom': prenomController.text.trim(),
-        'telephone': telephoneController.text.trim(),
-        'nomAgence': nomAgenceController.text.trim(),
-      };
-
-      // Add location if selected
       final location = selectedLocation.value;
-      if (location != null) {
-        payload['latitude'] = location.latitude;
-        payload['longitude'] = location.longitude;
-      }
+      final parents = selectedParentClientIds.toList();
 
-      // Add parent IDs (always include - empty array converts to PROSPECT)
-      payload['parentClientIds'] = selectedParentClientIds.toList();
-
-      // Add note if not empty
-      if (noteController.text.trim().isNotEmpty) {
-        payload['note'] = noteController.text.trim();
-      }
-
-      // Add marques if selected
-      if (selectedBrands.isNotEmpty) {
-        payload['marques'] = selectedBrands
-            .map((brand) => brand.displayName)
-            .toList();
-      }
-
-      debugPrint('Updating sub-client with payload: ${jsonEncode(payload)}');
-
-      final response = await _authService.updateSubClient(
-        subClientId: subClientId,
-        payload: payload,
+      final draft = ClientDraft(
+        kind: parents.isEmpty ? ClientKind.prospect : ClientKind.subClient,
+        id: subClientId,
+        nom: nomController.text,
+        prenom: prenomController.text,
+        nomAgence: nomAgenceController.text,
+        telephone: telephoneController.text,
+        note: noteController.text,
+        position: location == null
+            ? null
+            : GeoPosition(
+                latitude: location.latitude,
+                longitude: location.longitude,
+              ),
+        parentClientIds: parents,
+        brands: CarBrandCodec.encodeAll(selectedBrands),
+        imageBytes: selectedImageBytes.value,
       );
 
-      // Update local list
-      final index = mySubClients.indexWhere(
-        (client) => _safeString(client['id']) == subClientId,
-      );
-      if (index >= 0) {
-        mySubClients[index] = {...mySubClients[index], ...payload, ...response};
-        mySubClients.refresh();
+      final result = await _clients.updateClient(draft);
+
+      if (result case FailureResult<Client>(:final failure)) {
+        if (failure is! CancelledFailure) _showError(failure.message);
+        return;
       }
 
-      final selectedImage = selectedImageBytes.value;
-      if (selectedImage != null) {
-        unawaited(
-          _uploadImageInBackground(
-            entityType: AuthService.entitySubClient,
-            entityId: subClientId,
-            imageBytes: selectedImage,
-            fileName: 'sub_client_${DateTime.now().millisecondsSinceEpoch}.jpg',
-          ),
-        );
-      }
+      await _refreshMarkers();
 
-      Get.snackbar(
-        _tr('success'),
-        'Sous-client/Prospect mis à jour avec succès',
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
-      );
-
+      _showSuccess('Sous-client/Prospect mis à jour avec succès');
       _clearDraftAndFormAfterSave();
       closeClientForm();
-    } catch (e) {
-      Get.snackbar(
-        _tr('error'),
-        e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
     } finally {
       isCreatingClient.value = false;
     }
@@ -583,78 +618,123 @@ class CommercialMapController extends GetxController {
       confirmTextColor: Colors.white,
       onConfirm: () async {
         Get.back();
-        try {
-          await deleteSubClient(subClientId);
-          mySubClients.removeWhere(
-            (client) => _safeString(client['id']) == subClientId,
-          );
-          mySubClients.refresh();
 
-          Get.snackbar(
-            _tr('success'),
-            'Sous-client/Prospect supprimé avec succès',
-            backgroundColor: Colors.green,
-            colorText: Colors.white,
-          );
+        final result = await deleteSubClient(subClientId);
 
-          await _refreshMarkers();
-        } catch (e) {
-          Get.snackbar(
-            _tr('error'),
-            e.toString().replaceAll('Exception: ', ''),
-            backgroundColor: Colors.red,
-            colorText: Colors.white,
-          );
+        if (result case FailureResult<void>(:final failure)) {
+          _showError(failure.message);
+          return;
         }
+
+        // The repository removed it from the shared cache; this keeps the
+        // controller's own list in step until the map reads the cache directly.
+        mySubClients.removeWhere(
+          (client) => _safeString(client['id']) == subClientId,
+        );
+        mySubClients.refresh();
+
+        _showSuccess('Sous-client/Prospect supprimé avec succès');
+        await _refreshMarkers();
       },
     );
   }
 
   @override
   void onClose() {
-    _saveDraft();
-    codeClientController.dispose();
-    raisonSocialeController.dispose();
-    matriculeFiscalController.dispose();
-    telephoneController.dispose();
-    emailController.dispose();
-    parentClientIdController.dispose();
-    nomController.dispose();
-    prenomController.dispose();
-    nomAgenceController.dispose();
+    // Flush before tearing anything down, so the last keystrokes are not lost
+    // to the debounce.
+    unawaited(_flushDraftSave());
+
+    // Listeners are removed before disposal. The previous version never removed
+    // them, so each controller held a reference to this controller's
+    // `_saveDraft` for as long as it lived.
+    for (final controller in _draftControllers) {
+      controller.removeListener(_scheduleDraftSave);
+      controller.dispose();
+    }
+
     mapController?.dispose();
+    mapController = null;
     super.onClose();
   }
 
-  void _attachDraftListeners() {
-    final controllers = [
-      codeClientController,
-      raisonSocialeController,
-      matriculeFiscalController,
-      telephoneController,
-      emailController,
-      parentClientIdController,
-      nomController,
-      prenomController,
-      nomAgenceController,
-    ];
+  /// Every text field whose content belongs to the saved draft.
+  List<TextEditingController> get _draftControllers => [
+    codeClientController,
+    raisonSocialeController,
+    matriculeFiscalController,
+    telephoneController,
+    emailController,
+    parentClientIdController,
+    nomController,
+    prenomController,
+    nomAgenceController,
+    // Was missing from both the listener list and `onClose`, so notes were
+    // never captured in the draft and this controller was never disposed.
+    noteController,
+  ];
 
-    for (final controller in controllers) {
-      controller.addListener(_saveDraft);
+  void _attachDraftListeners() {
+    for (final controller in _draftControllers) {
+      controller.addListener(_scheduleDraftSave);
     }
   }
 
+  /// Queues a draft save shortly after typing stops.
+  ///
+  /// `_saveDraft` was previously registered directly as the listener, so every
+  /// keystroke ran `SharedPreferences.getInstance()`, built a map, JSON-encoded
+  /// it and wrote it to disk. Typing a twenty-character company name meant
+  /// twenty full serialisations and twenty disk writes — the form-typing lag.
+  /// Coalescing them means one write per pause instead.
+  void _scheduleDraftSave() {
+    _draftSaveTimer?.cancel();
+    _draftSaveTimer = Timer(_draftSaveDebounce, () {
+      unawaited(_saveDraft());
+    });
+  }
+
+  /// Writes any pending draft immediately, cancelling the queued save.
+  ///
+  /// Used when leaving the screen, where waiting for the debounce would lose
+  /// the last few characters typed.
+  Future<void> _flushDraftSave() async {
+    _draftSaveTimer?.cancel();
+    _draftSaveTimer = null;
+    await _saveDraft();
+  }
+
   // Get current location
+  /// Receives the platform map once it exists.
+  ///
+  /// Startup is a race: the GPS fix can arrive before or after the map is
+  /// created. Previously `_getCurrentLocation` simply skipped the camera move
+  /// when `mapController` was still null, so a fast fix left the map sitting on
+  /// its default position. Centring is now driven from whichever of the two
+  /// completes last.
+  void attachMapController(GoogleMapController controller) {
+    mapController = controller;
+
+    final position = currentPosition.value;
+    if (position != null) _moveCameraTo(position);
+  }
+
   Future<void> _getCurrentLocation() async {
     final position = await refreshCurrentPosition(updateSelectionIfEmpty: true);
-    if (position != null && mapController != null) {
-      mapController!.animateCamera(
-        CameraUpdate.newLatLngZoom(
-          LatLng(position.latitude, position.longitude),
-          15,
-        ),
-      );
-    }
+    if (position != null) _moveCameraTo(position);
+  }
+
+  /// Moves the camera imperatively.
+  ///
+  /// This is why the `GoogleMap` widget no longer needs to depend on the
+  /// position: the camera is a command, not a rebuild.
+  void _moveCameraTo(Position position) {
+    mapController?.animateCamera(
+      CameraUpdate.newLatLngZoom(
+        LatLng(position.latitude, position.longitude),
+        15,
+      ),
+    );
   }
 
   // Handle map tap
@@ -919,189 +999,134 @@ class CommercialMapController extends GetxController {
   }
 
   // Create client
+  /// Creates the client described by the open form.
+  ///
+  /// Goes through [ClientsRepository], which brings three things the previous
+  /// direct `AuthService` call did not have: a typed failure instead of a
+  /// stringly-typed exception, de-duplication of a double tap so the
+  /// representative cannot create the same client twice, and an automatic
+  /// cache update so the new client appears on the map and in the clients list
+  /// without a reload.
   Future<void> createClient() async {
+    final location = selectedLocation.value;
+    if (location == null) {
+      _showError(_tr('selectBoutiqueBeforeCreate'));
+      return;
+    }
+
+    isCreatingClient.value = true;
     try {
-      isCreatingClient.value = true;
+      final draft = _buildDraft(location);
+      final result = await _clients.createClient(draft);
 
-      final location = selectedLocation.value;
-      if (location == null) {
-        throw Exception(_tr('selectBoutiqueBeforeCreate'));
+      if (result case FailureResult<Client>(:final failure)) {
+        // A dropped duplicate submission is the guard working, not an error
+        // worth interrupting the user for.
+        if (failure is! CancelledFailure) _showError(failure.message);
+        return;
       }
 
-      final prefs = await SharedPreferences.getInstance();
-      final connectedCommercialId = prefs.getString('connected_user_id');
-      final connectedCommercialName = prefs.getString('connected_user_name');
+      final created = (result as Success<Client>).value;
+      final isSubClient = draft.kind.usesSubClientApi;
+      final recordType = isSubClient ? 'sub_client' : 'b2b';
 
-      if (registrationType.value == 'sub_client') {
-        // Parent client IDs are now optional - empty list will create a PROSPECT type
-
-        final payload = _buildSubClientPayload(location);
-        if (connectedCommercialId != null && connectedCommercialId.isNotEmpty) {
-          payload['commercialId'] = connectedCommercialId;
-        }
-
-        debugPrint('SUB-CLIENT payload sent: ${jsonEncode(payload)}');
-
-        // If no parent IDs selected, use empty array (will be prospect type on backend)
-        // Otherwise use first parent ID for the API call
-        final firstParentId = selectedParentClientIds.isNotEmpty
-            ? selectedParentClientIds.first
-            : null;
-
-        final response = await _authService.createSubClient(
-          parentClientId: firstParentId,
-          payload: payload,
-        );
-
-        final entityId = _safeString(response['id']).isNotEmpty
-            ? _safeString(response['id'])
-            : _safeString(response['userId']);
-
-        final snapshotImageBytes = selectedImageBytes.value;
-        if (snapshotImageBytes != null && entityId.isNotEmpty) {
-          unawaited(
-            _uploadImageInBackground(
-              entityType: AuthService.entitySubClient,
-              entityId: entityId,
-              imageBytes: snapshotImageBytes,
-              fileName:
-                  'sub_client_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            ),
-          );
-        }
-
-        await _saveSubmittedRecord(
-          type: 'sub_client',
-          sentPayload: payload,
-          responsePayload: response,
-        );
-
-        final markerLabel = _safeString(response['nomAgence']).isNotEmpty
-            ? _safeString(response['nomAgence'])
-            : _safeString(response['codeClient']).isNotEmpty
-            ? _safeString(response['codeClient'])
-            : '${nomController.text.trim()} ${prenomController.text.trim()}'
-                  .trim();
-
-        await _addRegisteredPin(
-          id: _safeString(response['id']).isNotEmpty
-              ? _safeString(response['id'])
-              : DateTime.now().millisecondsSinceEpoch.toString(),
-          label: markerLabel.isEmpty ? _tr('subClientLabel') : markerLabel,
-          location: location,
-          imageBase64: selectedImageBase64.value,
-          type: 'sub_client',
-        );
-      } else {
-        // Build B2B client payload
-        var sentPayload = <String, dynamic>{
-          'latitude': location.latitude.toString(),
-          'longitude': location.longitude.toString(),
-        };
-
-        if (codeClientController.text.trim().isNotEmpty) {
-          sentPayload['codeClient'] = codeClientController.text.trim();
-        }
-
-        if (raisonSocialeController.text.trim().isNotEmpty) {
-          sentPayload['raisonSociale'] = raisonSocialeController.text.trim();
-        }
-
-        if (matriculeFiscalController.text.trim().isNotEmpty) {
-          sentPayload['matriculeFiscal'] = matriculeFiscalController.text
-              .trim();
-        }
-
-        if (telephoneController.text.trim().isNotEmpty) {
-          sentPayload['telephone'] = telephoneController.text.trim();
-        }
-
-        if (emailController.text.trim().isNotEmpty) {
-          sentPayload['email'] = emailController.text.trim();
-        }
-
-        debugPrint('B2B payload sent: ${jsonEncode(sentPayload)}');
-
-        final response = await _authService.createClientWithPayload(
-          payload: sentPayload,
-        );
-
-        final entityId = _safeString(response['id']).isNotEmpty
-            ? _safeString(response['id'])
-            : (_safeString(response['userId']).isNotEmpty
-                  ? _safeString(response['userId'])
-                  : _safeString(response['codeClient']));
-
-        // Save marques/brands separately after client creation
-        if (selectedBrands.isNotEmpty && entityId.isNotEmpty) {
-          try {
-            await _authService.updateClient(
-              clientId: entityId,
-              payload: {
-                'marques': selectedBrands
-                    .map((brand) => brand.displayName)
-                    .toList(),
-              },
-            );
-            debugPrint('Marques saved successfully for client: $entityId');
-          } catch (e) {
-            debugPrint('Failed to save marques: $e');
-          }
-        }
-
-        final snapshotImageBytes = selectedImageBytes.value;
-        if (snapshotImageBytes != null && entityId.isNotEmpty) {
-          unawaited(
-            _uploadImageInBackground(
-              entityType: AuthService.entityClient,
-              entityId: entityId,
-              imageBytes: snapshotImageBytes,
-              fileName: 'client_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            ),
-          );
-        }
-
-        await _saveSubmittedRecord(
-          type: 'b2b',
-          sentPayload: sentPayload,
-          responsePayload: response,
-        );
-
-        await _addRegisteredPin(
-          id: _safeString(response['userId']).isNotEmpty
-              ? _safeString(response['userId'])
-              : DateTime.now().millisecondsSinceEpoch.toString(),
-          label: _safeString(response['raisonSociale']).isNotEmpty
-              ? _safeString(response['raisonSociale'])
-              : (raisonSocialeController.text.trim().isEmpty
-                    ? _tr('b2bClientLabel')
-                    : raisonSocialeController.text.trim()),
-          location: location,
-          imageBase64: selectedImageBase64.value,
-          type: 'b2b',
-        );
-      }
-
-      Get.snackbar(
-        _tr('success'),
-        _tr('clientCreated'),
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
+      await _saveSubmittedRecord(
+        type: recordType,
+        sentPayload: draft.position == null
+            ? const <String, dynamic>{}
+            : _draftAuditPayload(draft),
+        responsePayload: created.raw,
       );
 
+      await _addRegisteredPin(
+        id: created.id.isNotEmpty
+            ? created.id
+            : DateTime.now().millisecondsSinceEpoch.toString(),
+        label: _pinLabelFor(created, isSubClient: isSubClient),
+        location: location,
+        imageBase64: selectedImageBase64.value,
+        type: recordType,
+      );
+
+      _showSuccess(_tr('clientCreated'));
       _clearDraftAndFormAfterSave();
       closeClientForm();
-    } catch (e) {
-      Get.snackbar(
-        _tr('error'),
-        e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
     } finally {
       isCreatingClient.value = false;
     }
+  }
+
+  /// Builds a [ClientDraft] from the open form.
+  ///
+  /// The kind is derived from parentage exactly as the backend does: a
+  /// sub-client form with no parent selected creates a `PROSPECT`.
+  ClientDraft _buildDraft(LatLng location, {String id = ''}) {
+    final isSubClientForm = registrationType.value == 'sub_client';
+    final parents = selectedParentClientIds.toList();
+
+    return ClientDraft(
+      kind: isSubClientForm
+          ? (parents.isEmpty ? ClientKind.prospect : ClientKind.subClient)
+          : ClientKind.b2b,
+      id: id,
+      codeClient: codeClientController.text,
+      raisonSociale: raisonSocialeController.text,
+      matriculeFiscal: matriculeFiscalController.text,
+      nom: nomController.text,
+      prenom: prenomController.text,
+      nomAgence: nomAgenceController.text,
+      telephone: telephoneController.text,
+      email: emailController.text,
+      note: noteController.text,
+      position: GeoPosition(
+        latitude: location.latitude,
+        longitude: location.longitude,
+      ),
+      parentClientIds: parents,
+      // Always the backend display name. Creation used to send `brand.name`
+      // while updates sent `brand.displayName`, so editing a client rewrote its
+      // brands into a different vocabulary (audit H-10).
+      brands: CarBrandCodec.encodeAll(selectedBrands),
+      imageBytes: selectedImageBytes.value,
+    );
+  }
+
+  /// A record of what was submitted, kept for the local audit trail.
+  Map<String, dynamic> _draftAuditPayload(ClientDraft draft) => {
+    'kind': draft.kind.name,
+    if (draft.codeClient.isNotEmpty) 'codeClient': draft.codeClient,
+    if (draft.raisonSociale.isNotEmpty) 'raisonSociale': draft.raisonSociale,
+    if (draft.matriculeFiscal.isNotEmpty)
+      'matriculeFiscal': draft.matriculeFiscal,
+    if (draft.nom.isNotEmpty) 'nom': draft.nom,
+    if (draft.prenom.isNotEmpty) 'prenom': draft.prenom,
+    if (draft.nomAgence.isNotEmpty) 'nomAgence': draft.nomAgence,
+    if (draft.telephone.isNotEmpty) 'telephone': draft.telephone,
+    if (draft.email.isNotEmpty) 'email': draft.email,
+    if (draft.note.isNotEmpty) 'note': draft.note,
+    'parentClientIds': draft.parentClientIds,
+    if (draft.brands.isNotEmpty) 'marques': draft.brands,
+    if (draft.position != null) 'latitude': draft.position!.latitude,
+    if (draft.position != null) 'longitude': draft.position!.longitude,
+  };
+
+  /// Label for the map pin, falling back through what the backend returned and
+  /// then what was typed, so a pin is never left unlabelled.
+  String _pinLabelFor(Client created, {required bool isSubClient}) {
+    final fromServer = created.displayName;
+    if (fromServer.isNotEmpty) return fromServer;
+
+    if (isSubClient) {
+      final typed = '${nomController.text.trim()} ${prenomController.text.trim()}'
+          .trim();
+      final agency = nomAgenceController.text.trim();
+      if (agency.isNotEmpty) return agency;
+      if (typed.isNotEmpty) return typed;
+      return _tr('subClientLabel');
+    }
+
+    final raisonSociale = raisonSocialeController.text.trim();
+    return raisonSociale.isEmpty ? _tr('b2bClientLabel') : raisonSociale;
   }
 
   Future<void> submitClientForm() async {
@@ -1162,155 +1187,76 @@ class CommercialMapController extends GetxController {
     await _refreshMarkers();
   }
 
+  /// Applies the open form to the selected B2B client.
+  ///
+  /// Routed through [ClientsRepository], so the update is de-duplicated, the
+  /// cached portfolio is refreshed in place (no full reload), and a failure
+  /// arrives as a typed [Failure] rather than a string-matched exception.
   Future<void> updateSelectedClient() async {
-    print(
-      'Updating client with data: ${jsonEncode(selectedClientForUpdate.value)}',
-    );
+    final selectedClient = selectedClientForUpdate.value;
+    final clientId = _safeString(selectedClient?['id']);
+
+    if (selectedClient == null || clientId.isEmpty) {
+      _showError(_tr('noData'));
+      return;
+    }
+
+    isCreatingClient.value = true;
     try {
-      final selectedClient = selectedClientForUpdate.value;
-      if (selectedClient == null) {
-        throw Exception(_tr('noData'));
+      final draft = _buildB2bUpdateDraft(clientId);
+      final result = await _clients.updateClient(draft);
+
+      if (result case FailureResult<Client>(:final failure)) {
+        if (failure is! CancelledFailure) _showError(failure.message);
+        return;
       }
 
-      final clientId = _safeString(selectedClient['id']);
-      if (clientId.isEmpty) {
-        throw Exception(_tr('noData'));
-      }
+      // The repository already refreshed its cache and notified listeners, so
+      // the previous `await loadMyClients()` round-trip is no longer needed.
+      await _refreshMarkers();
 
-      isCreatingClient.value = true;
-
-      final payload = <String, dynamic>{};
-
-      void putIfNotEmpty(String key, String value) {
-        final normalized = value.trim();
-        if (normalized.isNotEmpty && isFieldEditableForCommercialUpdate(key)) {
-          payload[key] = normalized;
-        }
-      }
-
-      putIfNotEmpty('codeClient', codeClientController.text);
-      putIfNotEmpty('raisonSociale', raisonSocialeController.text);
-      putIfNotEmpty('nom', nomController.text);
-      putIfNotEmpty('matriculeFiscal', matriculeFiscalController.text);
-      putIfNotEmpty('telephone', telephoneController.text);
-      putIfNotEmpty('email', emailController.text);
-
-      // Add note if not empty (always editable)
-      if (noteController.text.trim().isNotEmpty) {
-        payload['note'] = noteController.text.trim();
-      }
-
-      final location = selectedLocation.value;
-      if (location != null) {
-        payload['latitude'] = location.latitude.toString();
-        payload['longitude'] = location.longitude.toString();
-      }
-
-      if (canEditBrandsForCurrentClient && selectedBrands.isNotEmpty) {
-        payload['marques'] = selectedBrands
-            .map((brand) => brand.displayName)
-            .toList();
-      }
-
-      if (payload.isEmpty) {
-        throw Exception(_tr('noData'));
-      }
-
-      final response = await _authService.updateClient(
-        clientId: clientId,
-        payload: payload,
-      );
-
-      final index = myClients.indexWhere(
-        (client) => _safeString(client['id']) == clientId,
-      );
-      if (index >= 0) {
-        myClients[index] = {...myClients[index], ...payload, ...response};
-        myClients.refresh();
-      }
-
-      final selectedImage = selectedImageBytes.value;
-      if (selectedImage != null) {
-        unawaited(
-          _uploadImageInBackground(
-            entityType: AuthService.entityClient,
-            entityId: clientId,
-            imageBytes: selectedImage,
-            fileName: 'client_${DateTime.now().millisecondsSinceEpoch}.jpg',
-          ),
-        );
-      }
-
-      await loadMyClients();
-
-      Get.snackbar(
-        _tr('success'),
-        _tr('clientCreated'),
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-      );
-
+      _showSuccess(_tr('clientCreated'));
       _clearDraftAndFormAfterSave();
-    } catch (e) {
-      print('Error updating client: $e');
-      Get.snackbar(
-        _tr('error'),
-        e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
     } finally {
       isCreatingClient.value = false;
     }
   }
 
-  LatLng _resolveClientLocation() {
-    if (selectedLocation.value != null) {
-      return selectedLocation.value!;
-    }
+  /// Builds the update draft for a B2B client, honouring the commercial
+  /// field-edit rule.
+  ///
+  /// A representative may fill a field that is still blank on the client but
+  /// may not overwrite one that already holds a value. A field they are not
+  /// allowed to change is left empty here, and the mapper omits empty fields,
+  /// so it is never sent.
+  ClientDraft _buildB2bUpdateDraft(String clientId) {
+    String editable(String key, String value) =>
+        isFieldEditableForCommercialUpdate(key) ? value.trim() : '';
 
-    if (currentPosition.value != null) {
-      return LatLng(
-        currentPosition.value!.latitude,
-        currentPosition.value!.longitude,
-      );
-    }
+    final location = selectedLocation.value;
 
-    return const LatLng(36.8065, 10.1815);
-  }
-
-  Map<String, dynamic> _buildSubClientPayload(LatLng location) {
-    final payload = <String, dynamic>{
-      'nom': nomController.text.trim(),
-      'prenom': prenomController.text.trim(),
-      'telephone': telephoneController.text.trim(),
-      'nomAgence': nomAgenceController.text.trim(),
-      'latitude': location.latitude,
-      'longitude': location.longitude,
-    };
-
-    // Add parent client IDs (multiple parents supported)
-    // If empty, backend will create type PROSPECT; if filled, creates type SOUS_CLIENT
-    final parentIds = selectedParentClientIds.isNotEmpty
-        ? selectedParentClientIds.toList()
-        : (selectedParentClientId.value.trim().isNotEmpty
-              ? [selectedParentClientId.value.trim()]
-              : []);
-
-    // Always include parentClientIds (empty array results in PROSPECT type)
-    payload['parentClientIds'] = parentIds;
-
-    // Add brands/marques
-    if (selectedBrands.isNotEmpty) {
-      payload['marques'] = selectedBrands.map((brand) => brand.name).toList();
-    }
-
-    // Add note if not empty
-    if (noteController.text.trim().isNotEmpty) {
-      payload['note'] = noteController.text.trim();
-    }
-
-    return payload;
+    return ClientDraft(
+      kind: ClientKind.b2b,
+      id: clientId,
+      codeClient: editable('codeClient', codeClientController.text),
+      raisonSociale: editable('raisonSociale', raisonSocialeController.text),
+      matriculeFiscal: editable('matriculeFiscal', matriculeFiscalController.text),
+      nom: editable('nom', nomController.text),
+      telephone: editable('telephone', telephoneController.text),
+      email: editable('email', emailController.text),
+      // The note is always the representative's to change.
+      note: noteController.text.trim(),
+      position: location == null
+          ? null
+          : GeoPosition(
+              latitude: location.latitude,
+              longitude: location.longitude,
+            ),
+      brands: canEditBrandsForCurrentClient
+          ? CarBrandCodec.encodeAll(selectedBrands)
+          : const [],
+      imageBytes: selectedImageBytes.value,
+    );
   }
 
   String getClientDisplayName(Map<String, dynamic> client) {
@@ -1377,26 +1323,6 @@ class CommercialMapController extends GetxController {
     );
   }
 
-  Future<void> _uploadImageInBackground({
-    required String entityType,
-    required String entityId,
-    required Uint8List imageBytes,
-    required String fileName,
-  }) async {
-    try {
-      final response = await _authService.uploadEntityImage(
-        entityType: entityType,
-        entityId: entityId,
-        imageBytes: imageBytes,
-        fileName: fileName,
-      );
-      debugPrint(
-        'Image upload completed for $entityType/$entityId: ${jsonEncode(response)}',
-      );
-    } catch (e) {
-      debugPrint('Image upload failed for $entityType/$entityId: $e');
-    }
-  }
 
   void _syncApiClientsToPins(List<Map<String, dynamic>> clients) {
     for (final client in clients) {
@@ -1467,15 +1393,32 @@ class CommercialMapController extends GetxController {
     await _refreshMarkers();
   }
 
-  Future<void> _refreshMarkers() async {
+  /// Rebuilds the marker set.
+  ///
+  /// Sequenced through [LatestWins]: this is `async` and is invoked from ~15
+  /// places, including the draggable pin's `onDragEnd`. Previously concurrent
+  /// runs interleaved and a slower, older run could finish last and overwrite
+  /// the newer marker set with stale content — the map showing state the app
+  /// had already moved past. Now only the newest run is allowed to commit.
+  Future<void> _refreshMarkers() => _markerRefresh.run<Set<Marker>>(
+    _buildMarkers,
+    commit: markers.assignAll,
+  );
+
+  Future<Set<Marker>> _buildMarkers() async {
     final nextMarkers = <Marker>{};
+    final pixelRatio = _devicePixelRatio;
 
     // Add registered pins
     for (final pin in registeredPins) {
       final resolvedImageBase64 = await _resolveImageBase64(pin);
-      final icon = await _buildClientMarkerIcon(
-        imageBase64: resolvedImageBase64,
-        markerType: pin.type,
+      // Served from cache after the first build of each distinct icon. The
+      // previous implementation reloaded the pin asset, decoded it, rasterised
+      // a canvas and PNG-encoded the result *per marker, per refresh*.
+      final icon = await _icons.iconFor(
+        kind: _kindOfMarkerType(pin.type),
+        avatarBytes: _bytesOfBase64(resolvedImageBase64),
+        pixelRatio: pixelRatio,
       );
       nextMarkers.add(
         Marker(
@@ -1500,9 +1443,9 @@ class CommercialMapController extends GetxController {
         final subClientType = _safeString(subClient['type']).isEmpty
             ? 'SOUS_CLIENT'
             : _safeString(subClient['type']);
-        final subClientIcon = await _buildClientMarkerIcon(
-          imageBase64: '',
-          markerType: subClientType,
+        final subClientIcon = await _icons.iconFor(
+          kind: _kindOfMarkerType(subClientType),
+          pixelRatio: pixelRatio,
         );
         final displayName = getClientDisplayName(subClient);
         nextMarkers.add(
@@ -1521,9 +1464,10 @@ class CommercialMapController extends GetxController {
 
     // Add selected location for editing
     if (selectedLocation.value != null) {
-      final selectedPickerIcon = await _buildClientMarkerIcon(
-        imageBase64: selectedImageBase64.value,
-        markerType: registrationType.value,
+      final selectedPickerIcon = await _icons.iconFor(
+        kind: _kindOfMarkerType(registrationType.value),
+        avatarBytes: _bytesOfBase64(selectedImageBase64.value),
+        pixelRatio: pixelRatio,
       );
       nextMarkers.add(
         Marker(
@@ -1545,7 +1489,30 @@ class CommercialMapController extends GetxController {
       );
     }
 
-    markers.assignAll(nextMarkers);
+    return nextMarkers;
+  }
+
+  /// The display density the marker bitmaps are rendered for, so pins are
+  /// crisp rather than upscaled.
+  double get _devicePixelRatio {
+    final views = ui.PlatformDispatcher.instance.views;
+    return views.isEmpty ? 1.0 : views.first.devicePixelRatio;
+  }
+
+  /// Maps the marker-type strings this controller uses internally
+  /// (`b2b`, `sub_client`) and the backend's (`PROSPECT`, `SOUS_CLIENT`) onto
+  /// the domain's [ClientKind], which is what the icon cache is keyed by.
+  ClientKind _kindOfMarkerType(String type) =>
+      ClientKind.fromBackend(type, fromSubClientEndpoint: true);
+
+  Uint8List? _bytesOfBase64(String? encoded) {
+    if (encoded == null || encoded.isEmpty) return null;
+    try {
+      return base64Decode(encoded);
+    } on FormatException {
+      // A corrupt stored image must not stop the marker from being drawn.
+      return null;
+    }
   }
 
   Future<String> _resolveImageBase64(_RegisteredClientPin pin) async {
@@ -1563,7 +1530,10 @@ class CommercialMapController extends GetxController {
       return cached;
     }
 
-    final bytes = await _authService.getProtectedImageBytes(imageUrl);
+    // The repository memoises the download, so a shopfront photo is fetched
+    // once per session no matter how often the markers are rebuilt.
+    final result = await _clients.fetchImageBytes(imageUrl);
+    final bytes = result.valueOrNull;
     if (bytes == null || bytes.isEmpty) {
       return '';
     }
@@ -1573,94 +1543,6 @@ class CommercialMapController extends GetxController {
     return encoded;
   }
 
-  Future<BitmapDescriptor> _buildClientMarkerIcon({
-    String? imageBase64,
-    required String markerType,
-  }) async {
-    try {
-      final pinAsset = await rootBundle.load('assets/images/picker.png');
-      final pinBytes = pinAsset.buffer.asUint8List();
-      final pinImage = await _decodeImage(pinBytes, targetWidth: 120);
-
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      const size = Size(140, 180);
-
-      final pinX = (size.width - pinImage.width) / 2;
-      final pinPaint = Paint();
-      if (markerType == 'b2b') {
-        pinPaint.colorFilter = const ColorFilter.mode(
-          Colors.green,
-          BlendMode.modulate,
-        );
-      } else if (markerType == 'PROSPECT') {
-        pinPaint.colorFilter = const ColorFilter.mode(
-          Colors.blue,
-          BlendMode.modulate,
-        );
-      } else if (markerType == 'SOUS_CLIENT') {
-        pinPaint.colorFilter = const ColorFilter.mode(
-          Colors.orange,
-          BlendMode.modulate,
-        );
-      }
-      canvas.drawImage(pinImage, Offset(pinX, 44), pinPaint);
-
-      if (imageBase64 != null && imageBase64.isNotEmpty) {
-        final avatarBytes = base64Decode(imageBase64);
-        final avatarImage = await _decodeImage(avatarBytes, targetWidth: 56);
-        const avatarCenter = Offset(70, 36);
-        const avatarRadius = 28.0;
-
-        canvas.drawCircle(
-          avatarCenter,
-          avatarRadius + 3,
-          Paint()..color = Colors.white,
-        );
-
-        final avatarRect = Rect.fromCircle(
-          center: avatarCenter,
-          radius: avatarRadius,
-        );
-
-        canvas.save();
-        canvas.clipPath(Path()..addOval(avatarRect));
-        paintImage(
-          canvas: canvas,
-          rect: avatarRect,
-          image: avatarImage,
-          fit: BoxFit.cover,
-        );
-        canvas.restore();
-      }
-
-      final picture = recorder.endRecording();
-      final markerImage = await picture.toImage(
-        size.width.toInt(),
-        size.height.toInt(),
-      );
-      final pngBytes = await markerImage.toByteData(
-        format: ui.ImageByteFormat.png,
-      );
-
-      if (pngBytes == null) {
-        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
-      }
-
-      return BitmapDescriptor.fromBytes(pngBytes.buffer.asUint8List());
-    } catch (_) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
-    }
-  }
-
-  Future<ui.Image> _decodeImage(Uint8List bytes, {int? targetWidth}) async {
-    final codec = await ui.instantiateImageCodec(
-      bytes,
-      targetWidth: targetWidth,
-    );
-    final frame = await codec.getNextFrame();
-    return frame.image;
-  }
 
   Future<void> _saveDraft() async {
     final prefs = await SharedPreferences.getInstance();

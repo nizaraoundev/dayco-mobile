@@ -3,7 +3,11 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/config/api_config.dart';
+import '../../../../core/di/service_locator.dart';
 import '../../../../core/env/env_prod.dart';
+import '../../../../core/storage/session_store.dart';
+import '../../../../core/utils/app_logger.dart';
 import '../models/client_model.dart';
 import '../models/login_request.dart';
 import '../models/login_response.dart';
@@ -32,16 +36,24 @@ class AuthService {
         '/api/v1/auth/login',
         data: request.toJson(),
       );
-      print(response);
-      print("000000000000000000000000000");
+      // The response body carries both the access and refresh tokens, so it is
+      // never logged; only the status code is.
+      AppLogger.debug('Login responded ${response.statusCode}');
       if (response.statusCode == 200 || response.statusCode == 201) {
         final responseData = _asMap(response.data);
         final loginResponse = LoginResponse.fromJson(responseData);
 
-        // Save token to shared preferences
+        // Tokens go to secure storage, under the *main* backend's namespace,
+        // so the stock backend's own sign-in can never overwrite them.
+        await locator<SessionStore>().write(
+          ApiBackend.main,
+          AuthTokens(
+            accessToken: loginResponse.accessToken,
+            refreshToken: loginResponse.refreshToken,
+          ),
+        );
+
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('access_token', loginResponse.accessToken);
-        await prefs.setString('refresh_token', loginResponse.refreshToken);
         await prefs.setString('user_id', loginResponse.userId);
         await prefs.setString('user_email', loginResponse.email);
         await prefs.setString('user_name', loginResponse.raisonSociale);
@@ -52,11 +64,15 @@ class AuthService {
         throw Exception('Login failed: ${response.statusMessage}');
       }
     } on DioException catch (e) {
-      print('DioException during login: ${e.message}, response: ${e.response}');
+      // `e.response` echoes the request body on some Dio versions, so only the
+      // status code and the backend's own message are logged.
+      AppLogger.warn(
+        'Login failed (${e.response?.statusCode}): ${_extractErrorMessage(e)}',
+      );
       final errorMessage = _extractErrorMessage(e);
       throw Exception(errorMessage);
     } catch (e) {
-      print('Unexpected error during login: $e');
+      AppLogger.error('Unexpected error during login', error: e);
       throw Exception('Unexpected error: $e');
     }
   }
@@ -65,9 +81,13 @@ class AuthService {
   Future<UserModel> getUserDetails(String userId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('access_token');
+      // From SessionStore, not preferences: `login` writes the token to secure
+      // storage, and the legacy `access_token` preference is deleted once
+      // migrated. Reading the preference here made every sign-in fail with
+      // "No authentication token found" immediately after a successful login.
+      final token = _mainAccessToken;
 
-      if (token == null) {
+      if (token == null || token.isEmpty) {
         throw Exception('No authentication token found');
       }
 
@@ -500,9 +520,13 @@ class AuthService {
 
   // Logout
   Future<void> logout() async {
+    // Clears every backend's tokens from secure storage, and drops the cached
+    // portfolio and marker icons so the next representative to sign in on this
+    // device cannot see the previous one's data.
+    await locator<SessionStore>().clearAll();
+    await resetAfterSignOut();
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
     await prefs.remove('user_id');
     await prefs.remove('user_email');
     await prefs.remove('user_name');
@@ -523,14 +547,13 @@ class AuthService {
   }
 
   // Check if user is authenticated
-  Future<bool> isAuthenticated() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.containsKey('access_token');
-  }
+  Future<bool> isAuthenticated() async =>
+      // Same reason as [getUserDetails]: the legacy preference no longer
+      // exists once the token has been migrated to secure storage.
+      _mainAccessToken != null;
 
   Future<bool> hasValidSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token');
+    final token = _mainAccessToken;
 
     if (token == null || token.isEmpty) {
       return false;
@@ -572,10 +595,7 @@ class AuthService {
   }
 
   // Get stored token
-  Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('access_token');
-  }
+  Future<String?> getToken() async => _mainAccessToken;
 
   Future<Response<dynamic>> _getUserDetailsResponse(
     String userId,
@@ -654,9 +674,19 @@ class AuthService {
     throw Exception('Invalid list response format from server');
   }
 
+  /// The main backend's bearer token.
+  ///
+  /// Reads [SessionStore], **not** `SharedPreferences`. Tokens moved into
+  /// secure storage and the legacy `access_token` key is deleted once migrated,
+  /// so the old preference read would find nothing and every authorised call
+  /// here — creating a client, updating one, uploading a shopfront photo —
+  /// would fail with "No authentication token found".
+  String? get _mainAccessToken =>
+      locator<SessionStore>().accessToken(ApiBackend.main);
+
   Future<Options> _authorizedOptions() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token');
+    final token = _mainAccessToken;
     if (token == null || token.isEmpty) {
       throw Exception('No authentication token found');
     }

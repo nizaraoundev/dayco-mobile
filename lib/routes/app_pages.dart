@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../features/auth/presentation/pages/login.dart';
 import '../features/auth/presentation/bindings/auth_binding.dart';
-import '../features/auth/data/services/auth_service.dart';
+import '../core/di/service_locator.dart';
+import '../features/auth/domain/repositories/auth_repository.dart';
 
 // Commercial feature imports
 import '../features/commercial/presentation/pages/commercial_dashboard_page.dart';
@@ -12,6 +13,7 @@ import '../features/commercial/presentation/pages/clients_page.dart';
 import '../features/commercial/presentation/pages/products_page.dart';
 import '../features/commercial/presentation/pages/orders_page.dart';
 import '../features/commercial/bindings/commercial_binding.dart';
+import '../features/startup/presentation/pages/initialization_route.dart';
 
 class AppPages {
   AppPages._();
@@ -50,6 +52,15 @@ class AppPages {
       binding: InitialCommercialBinding(),
       transition: Transition.fadeIn,
       transitionDuration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    ),
+    GetPage(
+      name: AppRoutes.initializing,
+      page: () => const InitializationRoute(),
+      // Fades rather than slides: this is a continuation of signing in, not a
+      // push onto a navigation stack.
+      transition: Transition.fadeIn,
+      transitionDuration: const Duration(milliseconds: 250),
       curve: Curves.easeInOut,
     ),
     GetPage(
@@ -218,8 +229,6 @@ class SplashPage extends StatefulWidget {
 }
 
 class _SplashPageState extends State<SplashPage> {
-  final AuthService _authService = AuthService();
-
   @override
   void initState() {
     super.initState();
@@ -227,19 +236,26 @@ class _SplashPageState extends State<SplashPage> {
   }
 
   Future<void> _navigateFromSplash() async {
-    await Future.delayed(const Duration(milliseconds: 700));
+    // Building the dependency graph here rather than before `runApp` keeps the
+    // first frame cheap: the branding is already on screen while the secure
+    // storage is read and the session restored. Nothing else can reach the
+    // locator first, because this is the initial route and it does not navigate
+    // until these have completed.
+    await configureDependencies();
 
-    final hasValidSession = await _authService.hasValidSession();
+    // The 700ms `Future.delayed` that used to be here was pure dead time: it
+    // delayed every cold start to make the splash visible. Routing now happens
+    // as soon as the stored session has been checked.
+    final restored = await locator<AuthRepository>().restoreSession();
 
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
-    if (hasValidSession) {
-      Get.offAllNamed(AppRoutes.commercialMap);
-    } else {
-      Get.offAllNamed(AppRoutes.login);
-    }
+    // A restored session goes through initialization too, so a restart reaches
+    // the map with its data already loaded — the same path as a fresh sign-in,
+    // rather than a second code path that can drift from it.
+    Get.offAllNamed(
+      restored != null ? AppRoutes.initializing : AppRoutes.login,
+    );
   }
 
   @override

@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../core/config/api_config.dart';
+import '../../../../core/di/service_locator.dart';
+import '../../../../core/storage/session_store.dart';
 import '../models/commercial_stock_models.dart';
 
 class CommercialStockService {
@@ -42,14 +44,16 @@ class CommercialStockService {
         throw Exception('Réponse de connexion invalide (accessToken absent).');
       }
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', accessToken);
-      if (refreshToken.isNotEmpty) {
-        await prefs.setString('refresh_token', refreshToken);
-      }
-      await prefs.setString(
-        'user_email',
-        (data['email'] ?? codeClient).toString(),
+      // Written under the stock namespace. The previous implementation wrote
+      // these to `access_token` / `refresh_token` / `user_email` — the same
+      // keys the main backend used — so consulting stock destroyed the user's
+      // main session and produced apparently random logouts (audit C-1).
+      await locator<SessionStore>().write(
+        ApiBackend.stock,
+        AuthTokens(
+          accessToken: accessToken,
+          refreshToken: refreshToken.isEmpty ? null : refreshToken,
+        ),
       );
 
       return accessToken;
@@ -161,15 +165,24 @@ class CommercialStockService {
     }
   }
 
+  /// Reads the **stock** backend's own token.
+  ///
+  /// This is the other half of the fix for the session collision: stock runs
+  /// against `b2b.stdp-dayco.com`, a different host with a different sign-in,
+  /// so its token lives under its own namespace. Previously both backends
+  /// shared the single `access_token` preference key, and signing in here
+  /// silently replaced the credentials used for every client and map call.
   Future<Options> _authorizedOptions() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token');
+    final token = locator<SessionStore>().accessToken(ApiBackend.stock);
 
     if (token == null || token.isEmpty) {
       throw Exception('Aucun token trouvé. Connectez-vous d\'abord.');
     }
 
-    return Options(headers: {'Authorization': 'Bearer $token'});
+    return Options(headers: {
+      'Authorization': 'Bearer $token',
+      'X-Device-Id': _deviceId,
+    });
   }
 
   Map<String, dynamic> _asMap(dynamic data) {

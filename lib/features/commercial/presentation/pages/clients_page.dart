@@ -19,8 +19,6 @@ class ClientsPage extends StatelessWidget {
       backgroundColor: ColorManager.backgroundColor,
       appBar: AppBar(
         title: const Text('Mes Clients B2B'),
-        backgroundColor: ColorManager.primaryColor,
-        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),
