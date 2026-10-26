@@ -29,6 +29,9 @@ class CommercialMapController extends GetxController {
   GoogleMapController? mapController;
   final Rx<MapType> selectedMapType = Rx<MapType>(MapType.normal);
 
+  /// Live traffic overlay. Free with the Maps SDK, so it is offered as a layer.
+  final RxBool isTrafficEnabled = false.obs;
+
   // User's current location
   final Rx<Position?> currentPosition = Rx<Position?>(null);
 
@@ -252,6 +255,38 @@ class CommercialMapController extends GetxController {
 
   void setMapType(MapType mapType) {
     selectedMapType.value = mapType;
+  }
+
+  void toggleTraffic() {
+    isTrafficEnabled.value = !isTrafficEnabled.value;
+  }
+
+  /// Recenters the camera on the device, resetting bearing and tilt the way
+  /// the Google Maps locate button does.
+  ///
+  /// Unlike [fillWithCurrentLocation] this never touches the client form
+  /// selection, so it is safe to call at any time.
+  Future<void> recenterOnCurrentPosition() async {
+    final position = await refreshCurrentPosition();
+    if (position == null || mapController == null) return;
+
+    await mapController!.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: LatLng(position.latitude, position.longitude),
+          zoom: 16,
+          bearing: 0,
+          tilt: 0,
+        ),
+      ),
+    );
+  }
+
+  /// Centers the map on an arbitrary point, used to jump to a client.
+  Future<void> focusOnLocation(LatLng target, {double zoom = 17}) async {
+    await mapController?.animateCamera(
+      CameraUpdate.newLatLngZoom(target, zoom),
+    );
   }
 
   Future<void> loadMyClients() async {

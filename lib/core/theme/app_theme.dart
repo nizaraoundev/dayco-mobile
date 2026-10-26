@@ -237,6 +237,10 @@ class ColorManager {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
+        // Material 3 caps modal sheets at 640px, which leaves them floating in
+        // the middle of a tablet or a landscape phone. Sheets here are
+        // full-bleed instead.
+        constraints: BoxConstraints(),
       ),
 
       // Snack bar theme

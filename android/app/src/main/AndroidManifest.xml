@@ -38,10 +38,16 @@
             android:name="flutterEmbedding"
             android:value="2" />
         
-        <!-- Google Maps API Key -->
+        <!--
+          Google Maps API key. This is the one the Maps SDK authenticates tile
+          requests with, and it must stay in sync with `googleMapsApiKey` in
+          lib/features/commercial/data/services/map_service.dart, which is used
+          for the Directions web service. They drifted apart once and the map
+          kept failing against the old key while the Dart side had the new one.
+        -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyBQyBRLDvdrrGQk3NT8Sm9c5lX7Nizvj24" />
+            android:value="AIzaSyDLWyxEelHv2xAKqUVrMGDzzNmZRUrg9jU" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
