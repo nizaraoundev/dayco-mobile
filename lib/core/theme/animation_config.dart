@@ -1,3 +1,6 @@
+// CupertinoPageTransitionsBuilder lives in cupertino/route.dart and is exported
+// only by this library -- material does not re-export it.
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 /// Animation and transition configuration for the app

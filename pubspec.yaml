@@ -70,14 +70,21 @@ dependencies:
   #  TARJMA 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.4
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+# Not a dependency -- flutter_launcher_icons' own settings. This block used to
+# sit immediately after `flutter_launcher_icons: ^0.14.4` with no blank line, so
+# YAML read it as a top-level mapping that swallowed `flutter_test` and
+# `flutter_lints` as two of its keys. Neither was a dev-dependency as a result,
+# and every test failed with "Target of URI doesn't exist: package:flutter_test".
+# The authoritative copy of these settings is flutter_launcher_icons.yaml.
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "assets/images/logo.svg"
   background_color: "#000000"
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^3.0.0
 
 flutter:
   generate: true

@@ -9,7 +9,7 @@ import 'package:http/http.dart' as http;
 import '../models/models.dart';
 
 /// Google Maps API Key
-const String googleMapsApiKey = 'AIzaSyBQyBRLDvdrrGQk3NT8Sm9c5lX7Nizvj24';
+const String googleMapsApiKey = 'AIzaSyDLWyxEelHv2xAKqUVrMGDzzNmZRUrg9jU';
 
 /// Map service for route optimization and directions
 class MapService extends GetxService {

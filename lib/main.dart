@@ -47,6 +47,11 @@ class MyApp extends StatelessWidget {
         theme: ThemeData(
           useMaterial3: true,
           pageTransitionsTheme: AppAnimationConfig.pageTransitionsTheme,
+          // Material 3 caps modal sheets at 640px wide, which leaves them
+          // floating in the middle of a tablet. Sheets here are full-bleed.
+          bottomSheetTheme: const BottomSheetThemeData(
+            constraints: BoxConstraints(),
+          ),
           // Enhanced visual feedback for interactions
           splashFactory: InkRipple.splashFactory,
           highlightColor: Colors.transparent,

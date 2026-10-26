@@ -26,6 +26,10 @@ class AuthController extends GetxController {
   final TextEditingController emailLoginController = TextEditingController();
   final TextEditingController passwordLoginController = TextEditingController();
 
+  // Focus nodes for login so the keyboard "next" action can move between fields
+  final FocusNode emailLoginFocusNode = FocusNode();
+  final FocusNode passwordLoginFocusNode = FocusNode();
+
   // Country code for phone number (default to Tunisia)
   final RxString selectedCountryCode = '+216'.obs;
 
@@ -89,6 +93,8 @@ class AuthController extends GetxController {
     try {
       emailLoginController.dispose();
       passwordLoginController.dispose();
+      emailLoginFocusNode.dispose();
+      passwordLoginFocusNode.dispose();
       nameController.dispose();
       phoneController.dispose();
       emailController.dispose();
