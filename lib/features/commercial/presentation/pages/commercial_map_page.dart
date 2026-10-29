@@ -7,14 +7,218 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../localization/ui_translations.dart';
 import '../controllers/commercial_map_controller.dart';
 import 'commercial_stock_page.dart';
+import 'reminders_page.dart';
 import '../widgets/brand_selection_widget.dart';
+import '../widgets/client_palette.dart';
 import '../widgets/map_style.dart';
 import '../../data/models/models.dart';
+import '../../data/services/client_annotations_service.dart';
+import '../../data/services/sync_service.dart';
 
 class CommercialMapPage extends StatelessWidget {
   const CommercialMapPage({super.key});
 
   String _tr(String key) => UiTranslations.t(key);
+
+  /// The one thing the map says about the queue: everything is sent, or
+  /// something is waiting.
+  ///
+  /// Saving never waits for the network, so a commercial has no other way of
+  /// telling the two apart — and no reason to care which it is while they
+  /// work. The icon is there to be glanced at, not read: a tick when the
+  /// backend has everything, a cloud with an arrow when the phone is still
+  /// holding something. Tapping it is how anyone who does want the detail
+  /// gets it.
+  Widget _buildSyncStatus(BuildContext context) {
+    final sync = Get.isRegistered<SyncService>()
+        ? Get.find<SyncService>()
+        : Get.put<SyncService>(SyncService(), permanent: true);
+
+    return Obx(() {
+      final waiting = sync.outstandingCount > 0;
+
+      return Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          elevation: 4,
+          child: InkWell(
+            onTap: () => _showPendingSheet(context, sync),
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child: waiting
+                    ? const Icon(
+                        Icons.cloud_upload_outlined,
+                        key: ValueKey('waiting'),
+                        size: 20,
+                        color: ColorManager.warningColor,
+                      )
+                    : const Icon(
+                        Icons.cloud_done_outlined,
+                        key: ValueKey('synced'),
+                        size: 20,
+                        color: ColorManager.successColor,
+                      ),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  /// Everything the device is still holding, and why.
+  ///
+  /// A commercial who has registered six shops on a bad connection should be
+  /// able to see those six, in the order they will be sent, rather than trust
+  /// a number. Each row can be sent again now, or given up on — which is the
+  /// only way anything leaves the queue unsent.
+  void _showPendingSheet(BuildContext context, SyncService sync) {
+    Get.bottomSheet(
+      SafeArea(
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+          child: Obx(() {
+            final items = sync.pendingItems;
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: ColorManager.lightGrey2,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Icon(
+                      sync.isOnline.value ? Icons.cloud_queue : Icons.cloud_off,
+                      size: 20,
+                      color: ColorManager.primaryColor,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _tr('pendingSync'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: ColorManager.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (items.isNotEmpty && sync.isOnline.value)
+                      TextButton(
+                        onPressed: sync.syncAll,
+                        child: const Text('Tout envoyer'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  items.isEmpty
+                      ? 'Tout a été envoyé au serveur.'
+                      : "${items.length} élément(s) enregistré(s) sur l'appareil, "
+                            'dans leur ordre d\'envoi.',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: ColorManager.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.5,
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => const Divider(height: 18),
+                    itemBuilder: (_, index) =>
+                        _buildPendingRow(sync, items[index]),
+                  ),
+                ),
+              ],
+            );
+          }),
+        ),
+      ),
+      isScrollControlled: true,
+    );
+  }
+
+  Widget _buildPendingRow(SyncService sync, SyncQueueItem item) {
+    final refused = item.status == SyncStatus.conflict;
+    final error = item.errorMessage;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          refused ? Icons.error_outline : Icons.schedule,
+          size: 18,
+          color: refused ? ColorManager.errorColor : ColorManager.warningColor,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.label,
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: ColorManager.textPrimary,
+                ),
+              ),
+              if (error != null && error.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    refused ? 'Refusé: $error' : error,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: ColorManager.textSecondary,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        IconButton(
+          tooltip: 'Réessayer',
+          onPressed: () => sync.retryNow(item),
+          icon: const Icon(Icons.refresh, size: 18),
+          visualDensity: VisualDensity.compact,
+        ),
+        if (refused)
+          IconButton(
+            tooltip: 'Abandonner',
+            onPressed: () => sync.discard(item),
+            icon: const Icon(Icons.delete_outline, size: 18),
+            visualDensity: VisualDensity.compact,
+          ),
+      ],
+    );
+  }
 
   String _value(dynamic value) {
     if (value == null) return '-';
@@ -44,9 +248,9 @@ class CommercialMapPage extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: ColorManager.surfaceColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: ColorManager.lightGrey2),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -110,82 +314,9 @@ class CommercialMapPage extends StatelessWidget {
     await controller.loadMyClients();
 
     Get.bottomSheet(
-      SafeArea(
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-          ),
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
-          child: Obx(() {
-            final clients = controller.myClients;
-            if (clients.isEmpty) {
-              return SizedBox(
-                height: 200,
-                child: Center(child: Text(_tr('noParentClientsAvailable'))),
-              );
-            }
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.black26,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _tr('selectParentClients'),
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: clients.length,
-                    itemBuilder: (_, index) {
-                      final client = clients[index];
-                      final clientId = _value(client['id']);
-                      final displayName = controller.getClientDisplayName(client);
-
-                      return CheckboxListTile(
-                        value: controller.isParentClientSelected(clientId),
-                        onChanged: (_) =>
-                            controller.toggleParentClientSelection(clientId),
-                        title: Text(
-                          displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          controller.getClientSubtitle(client),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        dense: true,
-                        controlAffinity: ListTileControlAffinity.leading,
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 6),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: Get.back,
-                    child: Text(_tr('done')),
-                  ),
-                ),
-              ],
-            );
-          }),
-        ),
-      ),
+      _ParentClientsPicker(controller: controller),
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
     );
   }
 
@@ -221,10 +352,10 @@ class CommercialMapPage extends StatelessWidget {
                       width: 42,
                       height: 42,
                       decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.12),
+                        color: ColorManager.primaryColor.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.people_alt, color: Colors.blue),
+                      child: const Icon(Icons.people_alt, color: ColorManager.primaryColor),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -241,7 +372,10 @@ class CommercialMapPage extends StatelessWidget {
                           const SizedBox(height: 2),
                           Text(
                             '${controller.mySubClients.length} ${_tr('items')}',
-                            style: const TextStyle(fontSize: 12, color: Colors.black54),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
                           ),
                         ],
                       ),
@@ -271,7 +405,7 @@ class CommercialMapPage extends StatelessWidget {
                         icon: const Icon(Icons.person_add_alt_1),
                         label: Text(_tr('newSubClient')),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
+                          backgroundColor: ColorManager.warningColor,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 11),
                         ),
@@ -292,7 +426,7 @@ class CommercialMapPage extends StatelessWidget {
                         icon: const Icon(Icons.person_search),
                         label: Text(_tr('newProspect')),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
+                          backgroundColor: ColorManager.primaryColor,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 11),
                         ),
@@ -307,11 +441,15 @@ class CommercialMapPage extends StatelessWidget {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.inbox, size: 44, color: Colors.grey[400]),
+                            const Icon(
+                              Icons.inbox,
+                              size: 44,
+                              color: ColorManager.textTertiary,
+                            ),
                             const SizedBox(height: 10),
                             Text(
                               _tr('noSubClientsProspects'),
-                              style: TextStyle(color: Colors.grey[600]),
+                              style: const TextStyle(color: ColorManager.textSecondary),
                             ),
                           ],
                         ),
@@ -323,14 +461,17 @@ class CommercialMapPage extends StatelessWidget {
                         itemBuilder: (_, index) {
                           final subClient = controller.mySubClients[index];
                           final isProspect = subClient['type'] == 'PROSPECT';
-                          final displayName =
-                              controller.getClientDisplayName(subClient);
+                          final displayName = controller.getClientDisplayName(
+                            subClient,
+                          );
                           final parentIds =
-                              (subClient['parentClientIds'] as List?) ?? const [];
+                              (subClient['parentClientIds'] as List?) ??
+                              const [];
                           final marques =
                               (subClient['marques'] as List?) ?? const [];
-                          final imageUrl =
-                              controller.getClientImageUrl(subClient);
+                          final imageUrl = controller.getClientImageUrl(
+                            subClient,
+                          );
 
                           return Container(
                             decoration: BoxDecoration(
@@ -345,7 +486,9 @@ class CommercialMapPage extends StatelessWidget {
                               ],
                               border: Border(
                                 left: BorderSide(
-                                  color: isProspect ? Colors.blue : Colors.orange,
+                                  color: isProspect
+                                      ? ColorManager.primaryColor
+                                      : ColorManager.warningColor,
                                   width: 4,
                                 ),
                               ),
@@ -360,19 +503,20 @@ class CommercialMapPage extends StatelessWidget {
                                       if (imageUrl.isNotEmpty)
                                         CircleAvatar(
                                           radius: 21,
-                                          backgroundColor: Colors.grey.shade200,
+                                          backgroundColor: ColorManager.lightGrey2,
                                           child: ClipOval(
                                             child: Image.network(
                                               imageUrl,
                                               width: 42,
                                               height: 42,
                                               fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) => Icon(
-                                                isProspect
-                                                    ? Icons.person_outline
-                                                    : Icons.person,
-                                                color: Colors.black45,
-                                              ),
+                                              errorBuilder: (_, __, ___) =>
+                                                  Icon(
+                                                    isProspect
+                                                        ? Icons.person_outline
+                                                        : Icons.person,
+                                                    color: Colors.black45,
+                                                  ),
                                             ),
                                           ),
                                         )
@@ -381,16 +525,16 @@ class CommercialMapPage extends StatelessWidget {
                                           radius: 21,
                                           backgroundColor:
                                               (isProspect
-                                                      ? Colors.blue
-                                                      : Colors.orange)
+                                                      ? ColorManager.primaryColor
+                                                      : ColorManager.warningColor)
                                                   .withOpacity(0.12),
                                           child: Icon(
                                             isProspect
                                                 ? Icons.person_search
                                                 : Icons.person_pin,
                                             color: isProspect
-                                                ? Colors.blue
-                                                : Colors.orange,
+                                                ? ColorManager.primaryColor
+                                                : ColorManager.warningColor,
                                           ),
                                         ),
                                       const SizedBox(width: 10),
@@ -411,12 +555,14 @@ class CommercialMapPage extends StatelessWidget {
                                           vertical: 4,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: (isProspect
-                                                  ? Colors.blue
-                                                  : Colors.orange)
-                                              .withOpacity(0.16),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
+                                          color:
+                                              (isProspect
+                                                      ? ColorManager.primaryColor
+                                                      : ColorManager.warningColor)
+                                                  .withOpacity(0.16),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
                                         ),
                                         child: Text(
                                           isProspect
@@ -426,8 +572,8 @@ class CommercialMapPage extends StatelessWidget {
                                             fontSize: 10,
                                             fontWeight: FontWeight.w700,
                                             color: isProspect
-                                                ? Colors.blue.shade700
-                                                : Colors.orange.shade700,
+                                                ? ColorManager.primaryVariant
+                                                : ColorManager.warningColor,
                                           ),
                                         ),
                                       ),
@@ -474,10 +620,13 @@ class CommercialMapPage extends StatelessWidget {
                                       onPressed: () {
                                         Get.back();
                                         controller.selectSubClientForEdit(
-                                            subClient);
+                                          subClient,
+                                        );
                                       },
-                                      icon: const Icon(Icons.edit,
-                                          color: Colors.white),
+                                      icon: const Icon(
+                                        Icons.edit,
+                                        color: Colors.white,
+                                      ),
                                       label: Text(
                                         _tr('update'),
                                         style: const TextStyle(
@@ -489,7 +638,8 @@ class CommercialMapPage extends StatelessWidget {
                                         backgroundColor:
                                             ColorManager.primaryColor,
                                         padding: const EdgeInsets.symmetric(
-                                            vertical: 12),
+                                          vertical: 12,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -533,32 +683,58 @@ class CommercialMapPage extends StatelessWidget {
   Widget _buildClientsSheet(CommercialMapController controller) {
     return _ClientsListSheet(
       controller: controller,
-        cardBuilder:
-            (client, onTap, isExpanded, onExpandedChanged, compact) =>
-                _buildClientDetailsCard(
-          controller,
-          client,
-          onTap,
-          isExpanded: isExpanded,
-          onExpandedChanged: onExpandedChanged,
-          compact: compact,
-        ),
-        detailBuilder: (client, onTap) => _ClientDetailsBody(
-          controller: controller,
-          client: client,
-          onTap: onTap,
-          metaChipBuilder: _metaChip,
-          formatDate: _formatDate,
-          hasValue: _hasValue,
-          showHeader: true,
-        ),
-      );
+      cardBuilder: (client, onTap, isExpanded, onExpandedChanged, compact) =>
+          _buildClientDetailsCard(
+            controller,
+            client,
+            onTap,
+            isExpanded: isExpanded,
+            onExpandedChanged: onExpandedChanged,
+            compact: compact,
+          ),
+      detailBuilder: (client, onTap) => _ClientDetailsBody(
+        controller: controller,
+        client: client,
+        onTap: onTap,
+        metaChipBuilder: _metaChip,
+        formatDate: _formatDate,
+        hasValue: _hasValue,
+        showHeader: true,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = Get.put(CommercialMapController());
     final scaffoldKey = GlobalKey<ScaffoldState>();
+
+    // The map's own padding decides where the camera target lands on screen,
+    // so the picking pin has to be placed with the very same numbers.
+    final mapTopPadding = MediaQuery.paddingOf(context).top + 64;
+
+    // Tall enough to clear the clients pill and the control rail stacked above
+    // it. Google's own toolbar (directions / open in Maps) and the logo are
+    // inset by this padding, so anything smaller leaves them behind our
+    // buttons instead of above them.
+    const mapBottomPadding = 190.0;
+
+    // While picking the padding is made symmetric, so the camera target is the
+    // true centre of the view. That is what makes the pin, the coordinates
+    // readout and the saved point the same place. Capped, because twice the
+    // bottom padding would not fit on a short landscape screen.
+    // The controller needs the viewport to decide which side of the screen a
+    // tapped marker is on, and how far to scroll it clear of the panel.
+    controller.viewportSize = MediaQuery.sizeOf(context);
+    controller.viewportPixelRatio = MediaQuery.devicePixelRatioOf(context);
+
+    final maxPickPadding = MediaQuery.sizeOf(context).height * 0.25;
+    final rawPickPadding = mapTopPadding > mapBottomPadding
+        ? mapTopPadding
+        : mapBottomPadding;
+    final pickPadding = rawPickPadding > maxPickPadding
+        ? maxPickPadding
+        : rawPickPadding;
 
     return Scaffold(
       key: scaffoldKey,
@@ -606,55 +782,109 @@ class CommercialMapPage extends StatelessWidget {
               minMaxZoomPreference: const MinMaxZoomPreference(3, 20),
               // Keeps the native compass, toolbar and Google logo clear of
               // our own overlays instead of hidden behind them.
-              padding: EdgeInsets.only(
-                top: MediaQuery.paddingOf(context).top + 64,
-                bottom: 96,
+              padding: controller.isPickingLocationFromMap.value
+                  ? EdgeInsets.symmetric(vertical: pickPadding)
+                  : EdgeInsets.only(
+                      top: mapTopPadding,
+                      bottom: mapBottomPadding,
+                    ),
+              // Keeps the picking readout in step with what the pin covers.
+              onCameraMove: (position) =>
+                  controller.updatePickTarget(position.target),
+            ),
+          ),
+
+          // Picking mode: a pin fixed to the centre of the map while the user
+          // moves the map underneath it.
+          Obx(
+            () => controller.isPickingLocationFromMap.value
+                ? Positioned.fill(
+                    child: IgnorePointer(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: pickPadding),
+                        child: Center(child: _buildPickPin()),
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+
+          // Top bar: the usual menu + title, replaced by the picking
+          // instructions while a position is being chosen.
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Obx(
+                () => controller.isPickingLocationFromMap.value
+                    ? _buildPickingBanner(controller)
+                    : Row(
+                        children: [
+                          Material(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            elevation: 4,
+                            child: InkWell(
+                              onTap: () =>
+                                  scaffoldKey.currentState?.openDrawer(),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                child: const Icon(
+                                  Icons.menu,
+                                  color: ColorManager.textPrimary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Material(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              elevation: 4,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                child: Text(
+                                  _tr('addClientTitle'),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: ColorManager.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          _buildSyncStatus(context),
+                        ],
+                      ),
               ),
             ),
           ),
 
-          // Top app bar
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Material(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    elevation: 4,
-                    child: InkWell(
-                      onTap: () => scaffoldKey.currentState?.openDrawer(),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        child: Icon(Icons.menu, color: ColorManager.textPrimary),
-                      ),
+          // Details of a tapped marker, on the side the marker was moved away
+          // from.
+          Obx(() {
+            final client = controller.markerPopupClient.value;
+            if (client == null || controller.selectedMarkerId.value.isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return _buildMarkerPopup(context, controller, client);
+          }),
+
+          // Scrim behind the open speed dial, so tapping anywhere closes it.
+          Obx(
+            () => controller.isAddMenuOpen.value
+                ? Positioned.fill(
+                    child: GestureDetector(
+                      onTap: () => controller.isAddMenuOpen.value = false,
+                      child: Container(color: Colors.black.withOpacity(0.25)),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      elevation: 4,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        child: Text(
-                          _tr('addClientTitle'),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: ColorManager.textPrimary,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                  )
+                : const SizedBox.shrink(),
           ),
 
           // Map controls: a right-hand rail of icon buttons over a single
@@ -667,53 +897,42 @@ class CommercialMapPage extends StatelessWidget {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _buildMapControlRail(controller),
-                    const SizedBox(height: 14),
-
-                    // Confirm a position dragged on the map
-                    Obx(
-                      () => controller.hasPendingDragPosition.value &&
-                              !controller.showClientForm.value
-                          ? Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton.icon(
-                                  onPressed: controller.confirmDragPosition,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF16A34A),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 14,
-                                    ),
-                                    elevation: 4,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(28),
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.check_circle_outline),
-                                  label: const Text(
-                                    'Confirmer cette position',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 15,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-
-                    Align(
-                      alignment: Alignment.center,
-                      child: _buildClientsPill(context, controller),
-                    ),
-                  ],
+                child: Obx(
+                  () => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      // The rail stays up while picking: the locate button is
+                      // how the user jumps back to where they are standing.
+                      _buildMapControlRail(controller),
+                      const SizedBox(height: 14),
+                      if (controller.isPickingLocationFromMap.value)
+                        _buildPickConfirmBar(controller)
+                      else if (controller.tappedLocation.value != null)
+                        _buildCreateHereCard(controller)
+                      else
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Flexible(
+                              child: _buildClientsPill(context, controller),
+                            ),
+                            const SizedBox(width: 10),
+                            _buildStockPill(),
+                            const SizedBox(width: 10),
+                            _AddClientSpeedDial(
+                              open: controller.isAddMenuOpen.value,
+                              onToggle: () => controller.isAddMenuOpen.toggle(),
+                              onSelect: (kind) {
+                                controller.isAddMenuOpen.value = false;
+                                controller.openClientFormForKind(kind);
+                              },
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -725,7 +944,6 @@ class CommercialMapPage extends StatelessWidget {
                 ? _buildClientFormOverlay(context, controller)
                 : const SizedBox.shrink(),
           ),
-
         ],
       ),
     );
@@ -747,7 +965,8 @@ class CommercialMapPage extends StatelessWidget {
             tooltip: _tr('hybridMap'),
             // Highlighted whenever the map is showing something other than
             // the plain basemap, so the layer state is readable at a glance.
-            active: controller.selectedMapType.value != MapType.normal ||
+            active:
+                controller.selectedMapType.value != MapType.normal ||
                 controller.isTrafficEnabled.value,
             onTap: () => _openMapLayersSheet(controller),
           ),
@@ -778,7 +997,7 @@ class CommercialMapPage extends StatelessWidget {
         color: active ? ColorManager.primaryColor : Colors.white,
         shape: const CircleBorder(),
         elevation: 4,
-        shadowColor: Colors.black26,
+        shadowColor: ColorManager.shadowColor,
         child: InkWell(
           onTap: busy ? null : onTap,
           customBorder: const CircleBorder(),
@@ -786,9 +1005,9 @@ class CommercialMapPage extends StatelessWidget {
             width: 48,
             height: 48,
             child: busy
-                ? Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: CircularProgressIndicator(
+                ? const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: const CircularProgressIndicator(
                       strokeWidth: 2.4,
                       color: ColorManager.primaryColor,
                     ),
@@ -824,16 +1043,23 @@ class CommercialMapPage extends StatelessWidget {
             children: [
               const Icon(Icons.groups_outlined, color: Colors.white, size: 20),
               const SizedBox(width: 10),
-              Text(
-                _tr('clientsList'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
+              // Loose, so on a narrow phone the label gives way to the stock
+              // pill beside it instead of overflowing the row.
+              Flexible(
+                child: Text(
+                  _tr('clientsList'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
                 ),
               ),
               Obx(() {
-                if (controller.myClients.isEmpty) return const SizedBox.shrink();
+                if (controller.myClients.isEmpty)
+                  return const SizedBox.shrink();
                 return Padding(
                   padding: const EdgeInsets.only(left: 10),
                   child: Container(
@@ -858,6 +1084,612 @@ class CommercialMapPage extends StatelessWidget {
               }),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Shortcut to the stock page, beside the clients pill.
+  ///
+  /// Stock is the other thing a rep is asked for while standing in front of a
+  /// client, so it belongs on the map next to the clients list rather than
+  /// only behind the drawer. Kept white against the filled clients pill: the
+  /// clients list is still the primary action here, and the icon and violet
+  /// match the drawer entry so both read as the same destination.
+  Widget _buildStockPill() {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(28),
+      elevation: 5,
+      shadowColor: ColorManager.shadowColor,
+      child: InkWell(
+        onTap: () => Get.to(() => const CommercialStockPage()),
+        borderRadius: BorderRadius.circular(28),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.inventory_2_outlined,
+                color: Color(0xFF7C3AED),
+                size: 20,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Stock',
+                style: TextStyle(
+                  color: Color(0xFF3A2B5C),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Floating fiche for the marker that was tapped.
+  ///
+  /// Sits on whichever side the marker is not, so the pin stays visible while
+  /// its details are read.
+  Widget _buildMarkerPopup(
+    BuildContext context,
+    CommercialMapController controller,
+    Map<String, dynamic> client,
+  ) {
+    final size = MediaQuery.sizeOf(context);
+    final onRight = controller.markerPopupOnRight.value;
+    final width = (size.width * 0.44).clamp(240.0, 380.0).toDouble();
+
+    final top = MediaQuery.paddingOf(context).top + 76;
+
+    return Positioned(
+      top: top,
+      left: onRight ? null : 14,
+      right: onRight ? 14 : null,
+      width: width,
+      // Height follows the content, capped so a long fiche still scrolls
+      // instead of running under the bottom controls.
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: size.height - top - 130),
+        child: TweenAnimationBuilder<double>(
+          key: ValueKey(controller.selectedMarkerId.value),
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          builder: (context, t, child) => Opacity(
+            opacity: t.clamp(0.0, 1.0),
+            child: Transform.translate(
+              // Slides out from the side it is anchored to.
+              offset: Offset((onRight ? 1 : -1) * (1 - t) * 24, 0),
+              child: child,
+            ),
+          ),
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            clipBehavior: Clip.antiAlias,
+            elevation: 10,
+            shadowColor: Colors.black38,
+            child: _ClientFichePopup(
+              controller: controller,
+              client: client,
+              color: ClientPalette.forType(
+                _value(client['type']),
+                parentId: _firstParentId(client),
+              ),
+              metaChipBuilder: _metaChip,
+              formatDate: _formatDate,
+              hasValue: _hasValue,
+              actionsBuilder: () =>
+                  _buildMarkerPopupActions(controller, client),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Itinéraire, Google Maps and edit, staggered in under the fiche.
+  Widget _buildMarkerPopupActions(
+    CommercialMapController controller,
+    Map<String, dynamic> client,
+  ) {
+    final coords = _clientLatLng(client);
+    final hasLocation = coords.lat != null;
+    final target = hasLocation ? LatLng(coords.lat!, coords.lng!) : null;
+    final color = ClientPalette.forType(
+      _value(client['type']),
+      parentId: _firstParentId(client),
+    );
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF7F8FA),
+        border: Border(top: BorderSide(color: Color(0x14000000))),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _staggered(
+            0,
+            ElevatedButton.icon(
+              onPressed: target == null
+                  ? null
+                  : () => controller.openDirectionsTo(target),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: color,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: color.withOpacity(0.4),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.directions, size: 19),
+              label: const Text(
+                'Itinéraire',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _staggered(
+            1,
+            Row(
+              children: [
+                Expanded(
+                  child: _popupSecondaryAction(
+                    icon: Icons.map_outlined,
+                    label: 'Google Maps',
+                    color: color,
+                    onPressed: target == null
+                        ? null
+                        : () => controller.openInGoogleMaps(target),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _popupSecondaryAction(
+                    icon: Icons.edit_outlined,
+                    label: 'Modifier',
+                    color: color,
+                    onPressed: () {
+                      controller.closeMarkerPopup();
+                      // Opens the form the record belongs to, so a sub-client
+                      // is not edited through the B2B form.
+                      controller.selectRecordForEdit(client);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // A sub-client or prospect that turned into a real client.
+          if (controller.isSubClientRecord(client)) ...[
+            const SizedBox(height: 8),
+            _staggered(
+              2,
+              _popupSecondaryAction(
+                icon: Icons.upgrade_outlined,
+                label: 'Convertir en client B2B',
+                color: ClientPalette.b2b,
+                onPressed: () => controller.convertToB2BClient(client),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Fades and lifts a child into place, offset by its position in the group.
+  Widget _staggered(int index, Widget child) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 320 + index * 110),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, inner) => Opacity(
+        opacity: t.clamp(0.0, 1.0),
+        child: Transform.translate(
+          offset: Offset(0, (1 - t) * 10),
+          child: inner,
+        ),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _popupSecondaryAction({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onPressed,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 17),
+      label: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
+        side: BorderSide(color: color.withOpacity(0.4)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  String? _firstParentId(Map<String, dynamic> client) {
+    final parents = client['parentClientIds'];
+    if (parents is List && parents.isNotEmpty) return _value(parents.first);
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Picking a client's position
+  // ---------------------------------------------------------------------------
+
+  /// Fixed pin over the centre of the map. The small dot marks the exact
+  /// point; the pin sits above it so a thumb never hides what is being chosen.
+  Widget _buildPickPin() {
+    return Stack(
+      alignment: Alignment.center,
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: ColorManager.primaryColor.withOpacity(0.35),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+        ),
+        Transform.translate(
+          offset: const Offset(0, -26),
+          child: const Icon(
+            Icons.location_on,
+            size: 52,
+            color: ColorManager.primaryColor,
+            shadows: [
+              Shadow(
+                color: Colors.black38,
+                blurRadius: 8,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Replaces the top bar while picking: says what is happening, for which
+  /// client, and offers the way out.
+  Widget _buildPickingBanner(CommercialMapController controller) {
+    final client = controller.selectedClientForUpdate.value;
+    final name = client == null
+        ? 'Nouveau client'
+        : controller.getClientDisplayName(client);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      elevation: 6,
+      shadowColor: ColorManager.shadowColor,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: ColorManager.primaryColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.push_pin_outlined,
+                color: ColorManager.primaryColor,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Déplacez la carte pour placer le repère',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: ColorManager.textSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: controller.cancelLocationPicking,
+              icon: const Icon(Icons.close),
+              color: Colors.black45,
+              tooltip: 'Annuler',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Offered when the commercial taps open map: register something here, and
+  /// if so, what kind. The coordinates carry straight into the form.
+  Widget _buildCreateHereCard(CommercialMapController controller) {
+    final target = controller.tappedLocation.value;
+    if (target == null) return const SizedBox.shrink();
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      elevation: 8,
+      shadowColor: ColorManager.shadowColor,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 10, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.add_location_alt_outlined,
+                  size: 18,
+                  color: ClientPalette.pending,
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Enregistrer un client ici ?',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${target.latitude.toStringAsFixed(5)}, ${target.longitude.toStringAsFixed(5)}',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: controller.dismissTappedLocation,
+                  icon: const Icon(Icons.close),
+                  iconSize: 19,
+                  color: Colors.black45,
+                  tooltip: 'Annuler',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                for (final kind in ClientKind.values) ...[
+                  Expanded(child: _createHereButton(controller, kind)),
+                  if (kind != ClientKind.values.last) const SizedBox(width: 8),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _createHereButton(
+    CommercialMapController controller,
+    ClientKind kind,
+  ) {
+    final color = ClientPalette.forKind(kind);
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: () => controller.createClientAtTappedLocation(kind),
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: ClientPalette.gradient(color),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(ClientPalette.icon(kind), color: Colors.white, size: 19),
+                const SizedBox(height: 5),
+                Text(
+                  ClientPalette.label(kind),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Bottom bar while picking: live coordinates, then confirm or cancel.
+  Widget _buildPickConfirmBar(CommercialMapController controller) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      elevation: 8,
+      shadowColor: ColorManager.shadowColor,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Obx(() {
+              final target = controller.pickTarget.value;
+              final isLocating = controller.isLoadingLocation.value;
+
+              return Row(
+                children: [
+                  const Icon(
+                    Icons.place_outlined,
+                    size: 16,
+                    color: ColorManager.primaryColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      target == null
+                          ? 'Déplacez la carte pour choisir un point'
+                          : '${target.latitude.toStringAsFixed(5)}, ${target.longitude.toStringAsFixed(5)}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // The shortcut that used to be a second button on the form:
+                  // jump the pin to where the commercial is standing, then
+                  // adjust and confirm.
+                  TextButton.icon(
+                    onPressed: isLocating
+                        ? null
+                        : controller.recenterOnCurrentPosition,
+                    icon: const Icon(Icons.my_location, size: 16),
+                    label: Text(
+                      isLocating ? '...' : 'Ma position',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: ColorManager.primaryColor,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      backgroundColor: ColorManager.primaryColor.withOpacity(
+                        0.08,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: controller.cancelLocationPicking,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ColorManager.textSecondary,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: const BorderSide(color: Color(0x22000000)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text(
+                      'Annuler',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: Obx(
+                    () => ElevatedButton.icon(
+                      onPressed: controller.pickTarget.value == null
+                          ? null
+                          : controller.confirmPickedLocation,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF16A34A),
+                        disabledBackgroundColor: const Color(
+                          0xFF16A34A,
+                        ).withOpacity(0.4),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      icon: const Icon(Icons.check_circle_outline, size: 19),
+                      label: const Text(
+                        'Confirmer la position',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -931,7 +1763,7 @@ class CommercialMapPage extends StatelessWidget {
                       color: ColorManager.primaryColor.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(
+                    child: const Icon(
                       Icons.traffic_outlined,
                       color: ColorManager.primaryColor,
                       size: 20,
@@ -971,12 +1803,12 @@ class CommercialMapPage extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected
                 ? ColorManager.primaryColor.withOpacity(0.10)
-                : Colors.grey.shade50,
+                : ColorManager.surfaceColor,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: selected
                   ? ColorManager.primaryColor
-                  : Colors.grey.shade200,
+                  : ColorManager.lightGrey2,
               width: selected ? 1.6 : 1,
             ),
           ),
@@ -993,9 +1825,7 @@ class CommercialMapPage extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected
-                      ? ColorManager.primaryColor
-                      : Colors.black54,
+                  color: selected ? ColorManager.primaryColor : Colors.black54,
                 ),
               ),
             ],
@@ -1010,7 +1840,7 @@ class CommercialMapPage extends StatelessWidget {
       width: 44,
       height: 5,
       decoration: BoxDecoration(
-        color: Colors.black26,
+        color: ColorManager.shadowColor,
         borderRadius: BorderRadius.circular(8),
       ),
     );
@@ -1096,6 +1926,24 @@ class CommercialMapPage extends StatelessWidget {
                       Get.to(() => const CommercialStockPage());
                     },
                   ),
+                  const SizedBox(height: 10),
+                  Obx(() {
+                    final pending = controller.clientReminders
+                        .where((reminder) => !reminder.done)
+                        .length;
+                    return _drawerActionTile(
+                      icon: Icons.alarm_outlined,
+                      iconColor: const Color(0xFFD4A017),
+                      title: 'Rappels',
+                      subtitle: pending == 0
+                          ? 'Aucun rappel en attente'
+                          : '$pending rappel(s) en attente',
+                      onTap: () {
+                        Get.back();
+                        Get.to(() => const RemindersPage());
+                      },
+                    );
+                  }),
                   const SizedBox(height: 24),
 
                   _drawerSectionLabel(_tr('language')),
@@ -1123,7 +1971,7 @@ class CommercialMapPage extends StatelessWidget {
     final name = controller.profileData['name']?.isNotEmpty == true
         ? controller.profileData['name']!
         : '${controller.profileData['nom'] ?? ''} ${controller.profileData['prenom'] ?? ''}'
-            .trim();
+              .trim();
     final email = controller.profileData['email']?.isNotEmpty == true
         ? controller.profileData['email']!
         : '-';
@@ -1233,7 +2081,9 @@ class CommercialMapPage extends StatelessWidget {
     add(Icons.phone_outlined, controller.profileData['telephone']);
     add(
       Icons.badge_outlined,
-      controller.profileRoles.isEmpty ? null : controller.profileRoles.join(', '),
+      controller.profileRoles.isEmpty
+          ? null
+          : controller.profileRoles.join(', '),
     );
     add(
       Icons.place_outlined,
@@ -1342,8 +2192,7 @@ class CommercialMapPage extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight:
-                          selected ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                       color: selected
                           ? ColorManager.textOnPrimary
                           : Colors.black87,
@@ -1403,7 +2252,7 @@ class CommercialMapPage extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4, bottom: 8),
       child: Text(
         text.toUpperCase(),
-        style: TextStyle(
+        style: const TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.8,
@@ -1477,7 +2326,7 @@ class CommercialMapPage extends StatelessWidget {
                 const Icon(
                   Icons.chevron_right,
                   size: 20,
-                  color: Colors.black26,
+                  color: ColorManager.shadowColor,
                 ),
               ],
             ),
@@ -1486,7 +2335,6 @@ class CommercialMapPage extends StatelessWidget {
       ),
     );
   }
-
 
   // ---------------------------------------------------------------------------
   // Client form
@@ -1504,8 +2352,19 @@ class CommercialMapPage extends StatelessWidget {
     final horizontal = 24 + size.width * 0.025;
     final vertical = 24 + size.height * 0.025;
 
-    return Container(
-      color: Colors.black.withOpacity(0.55),
+    // Runs once when the form mounts: the backdrop fades in while the card
+    // settles up to full size, so the form arrives instead of appearing.
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) => Container(
+        color: Colors.black.withOpacity(0.55 * t),
+        child: Opacity(
+          opacity: t.clamp(0.0, 1.0),
+          child: Transform.scale(scale: 0.94 + 0.06 * t, child: child),
+        ),
+      ),
       child: SafeArea(
         child: Padding(
           padding: EdgeInsets.symmetric(
@@ -1519,6 +2378,8 @@ class CommercialMapPage extends StatelessWidget {
                 color: ColorManager.white,
                 borderRadius: BorderRadius.circular(24),
                 clipBehavior: Clip.antiAlias,
+                elevation: 18,
+                shadowColor: Colors.black54,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1531,17 +2392,35 @@ class CommercialMapPage extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
                         child: Form(
                           key: controller.clientFormKey,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _buildFormIdentitySection(controller),
-                              _buildFormContactSection(controller),
-                              _buildFormLocationSection(controller),
-                              _buildFormBrandsSection(controller),
-                              _buildFormExtrasSection(controller),
-                            ],
-                          ),
+                          child: Obx(() {
+                            // A B2B client is registered from paperwork, so
+                            // its official identity comes first. A prospect or
+                            // sub-client is registered from the street: what
+                            // the commercial actually has is where the shop is
+                            // and what its front looks like, so those lead.
+                            final fromTheField =
+                                controller.activeClientKind != ClientKind.b2b;
+
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: fromTheField
+                                  ? [
+                                      _buildFormIdentitySection(controller),
+                                      _buildFormLocationSection(controller),
+                                      _buildFormExtrasSection(controller),
+                                      _buildFormContactSection(controller),
+                                      _buildFormBrandsSection(controller),
+                                    ]
+                                  : [
+                                      _buildFormIdentitySection(controller),
+                                      _buildFormContactSection(controller),
+                                      _buildFormLocationSection(controller),
+                                      _buildFormBrandsSection(controller),
+                                      _buildFormExtrasSection(controller),
+                                    ],
+                            );
+                          }),
                         ),
                       ),
                     ),
@@ -1558,51 +2437,91 @@ class CommercialMapPage extends StatelessWidget {
   }
 
   Widget _buildFormHeader(CommercialMapController controller) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [ColorManager.primaryColor, ColorManager.primaryVariant],
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.business, color: Colors.white, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Obx(
-              () => Text(
-                controller.registrationType.value == 'sub_client'
-                    ? 'Sous-client / Prospect'
-                    : _tr('newClientB2B'),
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+    return Obx(() {
+      // The form wears the colour of what it is creating, matching the speed
+      // dial it was opened from and the pin it will leave on the map.
+      final kind = controller.activeClientKind;
+      final color = controller.activeClientColor;
+
+      return Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
+        decoration: BoxDecoration(gradient: ClientPalette.gradient(color)),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                ClientPalette.icon(kind),
+                color: Colors.white,
+                size: 20,
               ),
             ),
-          ),
-          IconButton(
-            onPressed: controller.closeClientForm,
-            icon: const Icon(Icons.close, color: Colors.white),
-            tooltip: 'Fermer',
-          ),
-        ],
-      ),
-    );
+            const SizedBox(width: 12),
+            Expanded(
+              child: Obx(() {
+                // Editing an existing record is a different job from creating
+                // one, so the title says which — and which kind.
+                final isUpdate =
+                    controller.selectedClientForUpdate.value != null;
+                final kindLabel = ClientPalette.label(kind);
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isUpdate ? 'Modifier $kindLabel' : 'Nouveau $kindLabel',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isUpdate
+                          ? controller.getClientDisplayName(
+                              controller.selectedClientForUpdate.value!,
+                            )
+                          : _formKindHint(kind),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white.withOpacity(0.85),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                );
+              }),
+            ),
+            IconButton(
+              onPressed: controller.closeClientForm,
+              icon: const Icon(Icons.close, color: Colors.white),
+              tooltip: 'Fermer',
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  String _formKindHint(ClientKind kind) {
+    switch (kind) {
+      case ClientKind.b2b:
+        return 'Client direct, rattaché à vous';
+      case ClientKind.subClient:
+        return "Rattaché à un ou plusieurs clients";
+      case ClientKind.prospect:
+        return 'Sans client parent pour le moment';
+    }
   }
 
   /// Who the client is. Short fields are paired two per line.
@@ -1614,14 +2533,14 @@ class CommercialMapPage extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _formSectionTitle('Identité'),
+            _formSectionTitle('Identité', controller.activeClientColor),
+            // Starred because the sub-client endpoint requires all three:
+            // "Le nom est obligatoire", "Le prénom est obligatoire",
+            // "Le téléphone est obligatoire".
             _formFieldPair(
+              _formField(label: 'Nom *', controller: controller.nomController),
               _formField(
-                label: 'Nom',
-                controller: controller.nomController,
-              ),
-              _formField(
-                label: 'Prénom',
+                label: 'Prénom *',
                 controller: controller.prenomController,
               ),
             ),
@@ -1642,7 +2561,7 @@ class CommercialMapPage extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _formSectionTitle('Identité'),
+          _formSectionTitle('Identité', controller.activeClientColor),
           _formFieldPair(
             _formField(
               label: _tr('codeClientOptional'),
@@ -1675,8 +2594,14 @@ class CommercialMapPage extends StatelessWidget {
 
   Widget _buildFormContactSection(CommercialMapController controller) {
     return Obx(() {
+      final isSubClient = controller.registrationType.value != 'b2b';
+
       final phone = _formField(
-        label: _tr('phoneOptional'),
+        // The sub-client endpoint rejects a missing telephone outright
+        // ("Le téléphone est obligatoire"), so calling it optional here only
+        // sets the commercial up to be refused. It stays optional for B2B,
+        // where the backend does treat it that way.
+        label: isSubClient ? 'Téléphone *' : _tr('phoneOptional'),
         controller: controller.telephoneController,
         keyboardType: TextInputType.phone,
       );
@@ -1686,7 +2611,7 @@ class CommercialMapPage extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _formSectionTitle('Contact'),
+            _formSectionTitle('Contact', controller.activeClientColor),
             phone,
             const SizedBox(height: 20),
           ],
@@ -1696,7 +2621,7 @@ class CommercialMapPage extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _formSectionTitle('Contact'),
+          _formSectionTitle('Contact', controller.activeClientColor),
           _formFieldPair(
             phone,
             _formField(
@@ -1712,77 +2637,107 @@ class CommercialMapPage extends StatelessWidget {
   }
 
   Widget _buildFormLocationSection(CommercialMapController controller) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _formSectionTitle('Position'),
-        Row(
-          children: [
-            Expanded(
-              child: _formSecondaryButton(
-                icon: Icons.map_outlined,
-                label: 'Sur la carte',
-                onPressed: controller.pickLocationFromMap,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Obx(
-                () => _formSecondaryButton(
-                  icon: Icons.my_location,
-                  label: _tr('myPosition'),
-                  onPressed: controller.isLoadingLocation.value
-                      ? null
-                      : controller.fillWithCurrentLocation,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Obx(() {
-          final location = controller.selectedLocation.value;
-          final isSet = location != null;
+    return Obx(() {
+      final location = controller.selectedLocation.value;
+      final isSet = location != null;
+      final isLocating = controller.isLoadingLocation.value;
 
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: isSet
-                  ? const Color(0xFF22C55E).withOpacity(0.08)
-                  : ColorManager.primaryColor.withOpacity(0.07),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  isSet ? Icons.check_circle_outline : Icons.location_on,
-                  size: 17,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _formSectionTitle('Position', controller.activeClientColor),
+
+          // State first: a client without a position never reaches the map,
+          // so say so plainly instead of hiding it in a hint. The warning
+          // crossfades into the confirmed coordinates.
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+            alignment: Alignment.topCenter,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              child: Container(
+                key: ValueKey(isSet),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 11,
+                ),
+                decoration: BoxDecoration(
                   color: isSet
-                      ? const Color(0xFF16A34A)
-                      : ColorManager.primaryColor,
+                      ? const Color(0xFF22C55E).withOpacity(0.08)
+                      : const Color(0xFFF59E0B).withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    isSet
-                        ? '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}'
-                        : _tr('touchMapBoutique'),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: isSet ? FontWeight.w600 : FontWeight.w400,
+                child: Row(
+                  children: [
+                    Icon(
+                      isSet
+                          ? Icons.check_circle_outline
+                          : Icons.warning_amber_rounded,
+                      size: 18,
                       color: isSet
-                          ? const Color(0xFF15803D)
-                          : ColorManager.textSecondary,
+                          ? const Color(0xFF16A34A)
+                          : const Color(0xFFB45309),
                     ),
-                  ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        isSet
+                            ? '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}'
+                            : "Position non définie — ce client n'apparaîtra pas sur la carte",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isSet
+                              ? const Color(0xFF15803D)
+                              : const Color(0xFFB45309),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          );
-        }),
-        const SizedBox(height: 20),
-      ],
-    );
+          ),
+          const SizedBox(height: 10),
+
+          // One way in. Choosing between "map" and "my position" up front was
+          // a false choice: both end on the map, and "my position" is now a
+          // button inside the picker.
+          if (!isSet)
+            ElevatedButton.icon(
+              onPressed: isLocating ? null : controller.startLocationPicking,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: ColorManager.primaryColor,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: ColorManager.primaryColor.withOpacity(
+                  0.5,
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.add_location_alt_outlined, size: 19),
+              label: Text(
+                isLocating ? 'Localisation...' : 'Définir la position',
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            )
+          else
+            _formSecondaryButton(
+              icon: Icons.edit_location_alt_outlined,
+              label: isLocating ? 'Localisation...' : 'Modifier la position',
+              onPressed: isLocating ? null : controller.startLocationPicking,
+            ),
+          const SizedBox(height: 20),
+        ],
+      );
+    });
   }
 
   Widget _buildFormBrandsSection(CommercialMapController controller) {
@@ -1790,39 +2745,49 @@ class CommercialMapPage extends StatelessWidget {
       final type = controller.registrationType.value;
       if (type != 'b2b' && type != 'sub_client') return const SizedBox.shrink();
 
-      final canEdit = type == 'sub_client' ||
-          controller.canEditBrandsForCurrentClient;
+      final canEdit =
+          type == 'sub_client' || controller.canEditBrandsForCurrentClient;
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _formSectionTitle('Marques automobiles'),
-          _formPickerTile(
-            icon: Icons.directions_car_outlined,
-            label: controller.selectedBrands.isEmpty
-                ? 'Aucune marque sélectionnée'
-                : 'Sélectionner les marques',
-            count: controller.selectedBrands.length,
-            onTap: canEdit ? () => _openBrandPicker(controller) : null,
-          ),
-          if (controller.selectedBrands.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: controller.selectedBrands
-                  .map(
-                    (brand) => _formChip(
-                      label: brand.displayName,
-                      onDeleted:
-                          canEdit ? () => controller.toggleBrand(brand) : null,
-                    ),
-                  )
-                  .toList(),
+      // Grows and shrinks smoothly as chips are added or removed.
+      return AnimatedSize(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        alignment: Alignment.topCenter,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _formSectionTitle(
+              'Marques automobiles',
+              controller.activeClientColor,
             ),
+            _formPickerTile(
+              icon: Icons.directions_car_outlined,
+              label: controller.selectedBrands.isEmpty
+                  ? 'Aucune marque sélectionnée'
+                  : 'Sélectionner les marques',
+              count: controller.selectedBrands.length,
+              onTap: canEdit ? () => _openBrandPicker(controller) : null,
+            ),
+            if (controller.selectedBrands.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: controller.selectedBrands
+                    .map(
+                      (brand) => _formChip(
+                        label: brand.displayName,
+                        onDeleted: canEdit
+                            ? () => controller.toggleBrand(brand)
+                            : null,
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            const SizedBox(height: 20),
           ],
-          const SizedBox(height: 20),
-        ],
+        ),
       );
     });
   }
@@ -1831,67 +2796,98 @@ class CommercialMapPage extends StatelessWidget {
     return Obx(() {
       final selected = controller.getSelectedParentClients();
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _formPickerTile(
-            icon: Icons.account_tree_outlined,
-            label: selected.isEmpty
-                ? _tr('noneSelectedProspectHint')
-                : _tr('parentClients'),
-            count: selected.length,
-            onTap: () => _openParentClientsPicker(controller),
-          ),
-          if (selected.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: selected.map((parent) {
-                final id = _value(parent['id']);
-                return _formChip(
-                  label: controller.getClientDisplayName(parent),
-                  onDeleted: () => controller.toggleParentClientSelection(id),
-                );
-              }).toList(),
+      return AnimatedSize(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        alignment: Alignment.topCenter,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _formPickerTile(
+              icon: Icons.account_tree_outlined,
+              label: selected.isEmpty
+                  ? 'Choisir le ou les clients parents'
+                  : _tr('parentClients'),
+              count: selected.length,
+              onTap: () => _openParentClientsPicker(controller),
             ),
+
+            // The backend turns a parentless sub-client into a prospect, which
+            // is a surprise unless it is said out loud here.
+            if (selected.isEmpty) ...[
+              const SizedBox(height: 8),
+              const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 15,
+                    color: Color(0xFFB45309),
+                  ),
+                  SizedBox(width: 7),
+                  const Expanded(
+                    child: const Text(
+                      'Sans parent, cette fiche sera enregistrée comme prospect',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        height: 1.3,
+                        color: ClientPalette.prospect,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (selected.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: selected.map((parent) {
+                  final id = _value(parent['id']);
+                  return _formChip(
+                    label: controller.getClientDisplayName(parent),
+                    onDeleted: () => controller.toggleParentClientSelection(id),
+                  );
+                }).toList(),
+              ),
+            ],
           ],
-        ],
+        ),
       );
     });
   }
 
   Widget _buildFormExtrasSection(CommercialMapController controller) {
+    final fromTheField = controller.activeClientKind != ClientKind.b2b;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _formSectionTitle('Photo et note'),
+        _formSectionTitle(
+          fromTheField ? 'Devanture et note' : 'Photo et note',
+          controller.activeClientColor,
+        ),
         Obx(
           () => Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: _formSecondaryButton(
-                      icon: Icons.camera_alt_outlined,
-                      label: _tr('takePhoto'),
-                      onPressed: controller.isPickingImage.value
-                          ? null
-                          : controller.pickImageFromCamera,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _formSecondaryButton(
-                      icon: Icons.photo_library_outlined,
-                      label: _tr('gallery'),
-                      onPressed: controller.isPickingImage.value
-                          ? null
-                          : controller.pickImageFromGallery,
-                    ),
-                  ),
-                ],
+              // One button; the source is chosen after, in a sheet.
+              _formSecondaryButton(
+                icon: controller.selectedImageBytes.value == null
+                    ? Icons.add_a_photo_outlined
+                    : Icons.photo_camera_back_outlined,
+                label: controller.isPickingImage.value
+                    ? 'Chargement...'
+                    : (controller.selectedImageBytes.value == null
+                          ? (fromTheField
+                                ? 'Photo de la devanture'
+                                : 'Ajouter une photo')
+                          : 'Remplacer la photo'),
+                onPressed: controller.isPickingImage.value
+                    ? null
+                    : () => _openPhotoSourceSheet(controller),
               ),
               if (controller.selectedImageBytes.value != null) ...[
                 const SizedBox(height: 10),
@@ -1982,9 +2978,11 @@ class CommercialMapPage extends StatelessWidget {
                     ? null
                     : controller.submitClientForm,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: ColorManager.primaryColor,
-                  disabledBackgroundColor:
-                      ColorManager.primaryColor.withOpacity(0.5),
+                  // Same colour as the header, so the whole form reads as one
+                  // kind of record.
+                  backgroundColor: controller.activeClientColor,
+                  disabledBackgroundColor: controller.activeClientColor
+                      .withOpacity(0.5),
                   padding: const EdgeInsets.symmetric(vertical: 15),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
@@ -2001,9 +2999,11 @@ class CommercialMapPage extends StatelessWidget {
                         ),
                       )
                     : Text(
+                        // This form edits the whole record, not just where it
+                        // sits, so the button says so.
                         controller.selectedClientForUpdate.value != null
-                            ? controller.clientLocationActionLabel
-                            : _tr('createClient'),
+                            ? 'Enregistrer les modifications'
+                            : 'Créer ${ClientPalette.label(controller.activeClientKind).toLowerCase()}',
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
@@ -2016,6 +3016,86 @@ class CommercialMapPage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Asks where the photo comes from, instead of making the form carry two
+  /// buttons for one task.
+  void _openPhotoSourceSheet(CommercialMapController controller) {
+    Get.bottomSheet(
+      SafeArea(
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(child: _sheetHandle()),
+              const SizedBox(height: 14),
+              const Text(
+                'Photo de la boutique',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 14),
+              _photoSourceTile(
+                icon: Icons.camera_alt_outlined,
+                label: _tr('takePhoto'),
+                onTap: () {
+                  Get.back();
+                  controller.pickImageFromCamera();
+                },
+              ),
+              const SizedBox(height: 10),
+              _photoSourceTile(
+                icon: Icons.photo_library_outlined,
+                label: _tr('gallery'),
+                onTap: () {
+                  Get.back();
+                  controller.pickImageFromGallery();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _photoSourceTile({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: const Color(0xFFF4F6F8),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: ColorManager.primaryColor),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Icon(Icons.chevron_right, size: 18, color: ColorManager.shadowColor),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2047,7 +3127,7 @@ class CommercialMapPage extends StatelessWidget {
                   top: 8,
                   right: 8,
                   child: Material(
-                    color: Colors.black12,
+                    color: ColorManager.shadowColor,
                     borderRadius: BorderRadius.circular(16),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(16),
@@ -2074,7 +3154,7 @@ class CommercialMapPage extends StatelessWidget {
 
   // --- Form building blocks --------------------------------------------------
 
-  Widget _formSectionTitle(String text) {
+  Widget _formSectionTitle(String text, [Color? color]) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Text(
@@ -2083,7 +3163,7 @@ class CommercialMapPage extends StatelessWidget {
           fontSize: 11,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.7,
-          color: ColorManager.primaryColor,
+          color: color ?? ColorManager.primaryColor,
         ),
       ),
     );
@@ -2111,11 +3191,11 @@ class CommercialMapPage extends StatelessWidget {
     int maxLines = 1,
   }) {
     OutlineInputBorder border({Color? color}) => OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: color == null
-              ? BorderSide.none
-              : BorderSide(color: color, width: 1.5),
-        );
+      borderRadius: BorderRadius.circular(12),
+      borderSide: color == null
+          ? BorderSide.none
+          : BorderSide(color: color, width: 1.5),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2144,7 +3224,7 @@ class CommercialMapPage extends StatelessWidget {
           style: const TextStyle(fontSize: 14, color: Colors.black87),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(fontSize: 13, color: Colors.black26),
+            hintStyle: const TextStyle(fontSize: 13, color: ColorManager.shadowColor),
             isDense: true,
             filled: true,
             fillColor: enabled
@@ -2184,9 +3264,7 @@ class CommercialMapPage extends StatelessWidget {
         foregroundColor: ColorManager.primaryColor,
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         side: BorderSide(color: ColorManager.primaryColor.withOpacity(0.35)),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -2254,7 +3332,7 @@ class CommercialMapPage extends StatelessWidget {
               Icon(
                 Icons.chevron_right,
                 size: 18,
-                color: enabled ? Colors.black38 : Colors.black12,
+                color: enabled ? Colors.black38 : ColorManager.shadowColor,
               ),
             ],
           ),
@@ -2275,7 +3353,7 @@ class CommercialMapPage extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w600,
               color: ColorManager.primaryColor,
@@ -2286,7 +3364,7 @@ class CommercialMapPage extends StatelessWidget {
             InkWell(
               onTap: onDeleted,
               borderRadius: BorderRadius.circular(10),
-              child: Icon(
+              child: const Icon(
                 Icons.close,
                 size: 14,
                 color: ColorManager.primaryColor,
@@ -2310,7 +3388,8 @@ class _ExpandableClientCard extends StatefulWidget {
     required IconData icon,
     required String label,
     required dynamic value,
-  }) metaChipBuilder;
+  })
+  metaChipBuilder;
   final String Function(dynamic raw) formatDate;
   final bool Function(dynamic value) hasValue;
 
@@ -2366,8 +3445,11 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
   void didUpdateWidget(_ExpandableClientCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     // The parent may have collapsed this card by opening another one.
-    if (widget.isExpanded != null && widget.isExpanded != oldWidget.isExpanded) {
-      widget.isExpanded! ? _animController.forward() : _animController.reverse();
+    if (widget.isExpanded != null &&
+        widget.isExpanded != oldWidget.isExpanded) {
+      widget.isExpanded!
+          ? _animController.forward()
+          : _animController.reverse();
     }
   }
 
@@ -2405,7 +3487,9 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
     } catch (_) {}
     final hasLocation = lat != null && lng != null && lat != 0.0 && lng != 0.0;
 
-    final locationColor = hasLocation ? const Color(0xFF22C55E) : const Color(0xFFF59E0B);
+    final locationColor = hasLocation
+        ? const Color(0xFF22C55E)
+        : const Color(0xFFF59E0B);
 
     final isSelectedRow = widget.compact && _expanded;
 
@@ -2438,8 +3522,10 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
               child: InkWell(
                 onTap: _toggle,
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
                   child: Row(
                     children: [
                       _buildAvatar(controller, client, imageUrl),
@@ -2487,6 +3573,11 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
                                       : const Color(0xFFEF4444),
                                   label: isActive ? 'Actif' : 'Inactif',
                                 ),
+                                if (controller.isIncompleteRecord(client))
+                                  _clientStatusTag(
+                                    color: const Color(0xFFF59E0B),
+                                    label: 'Incomplet',
+                                  ),
                               ],
                             ),
                           ],
@@ -2505,7 +3596,7 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
                             decoration: BoxDecoration(
                               color: widget.compact && _expanded
                                   ? ColorManager.primaryColor
-                                  : Colors.grey.shade100,
+                                  : ColorManager.surfaceColor,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Icon(
@@ -2536,7 +3627,7 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(height: 1, color: Colors.grey.shade100),
+                    Container(height: 1, color: ColorManager.dividerColor),
                     _ClientDetailsBody(
                       controller: controller,
                       client: client,
@@ -2564,11 +3655,10 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: Colors.grey.shade100,
+          color: ColorManager.surfaceColor,
           borderRadius: BorderRadius.circular(12),
         ),
-        child:
-            const Icon(Icons.business, color: Colors.black38, size: 22),
+        child: const Icon(Icons.business, color: Colors.black38, size: 22),
       );
     }
     return Container(
@@ -2576,7 +3666,7 @@ class _ExpandableClientCardState extends State<_ExpandableClientCard>
       height: 44,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: Colors.grey.shade100,
+        color: ColorManager.surfaceColor,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -2600,19 +3690,18 @@ enum _ClientsFilter { all, located, missing }
 
 /// Builds one client row: the card, what its action button does, whether it is
 /// currently the open one, and how it asks to become the open one.
-typedef _ClientCardBuilder = Widget Function(
-  Map<String, dynamic> client,
-  VoidCallback? onTap,
-  bool isExpanded,
-  ValueChanged<bool> onExpandedChanged,
-  bool compact,
-);
+typedef _ClientCardBuilder =
+    Widget Function(
+      Map<String, dynamic> client,
+      VoidCallback? onTap,
+      bool isExpanded,
+      ValueChanged<bool> onExpandedChanged,
+      bool compact,
+    );
 
 /// Builds the full details of one client for the landscape side panel.
-typedef _ClientDetailBuilder = Widget Function(
-  Map<String, dynamic> client,
-  VoidCallback? onTap,
-);
+typedef _ClientDetailBuilder =
+    Widget Function(Map<String, dynamic> client, VoidCallback? onTap);
 
 /// Draggable sheet listing the commercial's clients.
 ///
@@ -2661,8 +3750,10 @@ class _ClientsListSheetState extends State<_ClientsListSheet> {
     if (height <= 0) return;
 
     _sheetController.jumpTo(
-      (_sheetController.size - details.delta.dy / height)
-          .clamp(_minSize, _maxSize),
+      (_sheetController.size - details.delta.dy / height).clamp(
+        _minSize,
+        _maxSize,
+      ),
     );
   }
 
@@ -2725,7 +3816,7 @@ class _ClientsListSheetState extends State<_ClientsListSheet> {
   ) {
     return () {
       Get.back();
-      controller.selectClientForLocationUpdate(client);
+      controller.selectRecordForEdit(client);
     };
   }
 
@@ -2824,9 +3915,7 @@ class _ClientsListSheetState extends State<_ClientsListSheet> {
             client,
             _editAction(controller, client),
             key == _expandedClientKey,
-            (open) => setState(
-              () => _expandedClientKey = open ? key : null,
-            ),
+            (open) => setState(() => _expandedClientKey = open ? key : null),
             compact,
           );
         },
@@ -2852,19 +3941,19 @@ class _ClientsListSheetState extends State<_ClientsListSheet> {
         color: Colors.white,
         alignment: Alignment.center,
         padding: const EdgeInsets.all(24),
-        child: Column(
+        child: const Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
+            Icon(
               Icons.touch_app_outlined,
               size: 40,
-              color: Colors.black26,
+              color: ColorManager.shadowColor,
             ),
-            const SizedBox(height: 12),
-            Text(
+            SizedBox(height: 12),
+            const Text(
               'Sélectionnez un client pour voir ses détails',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+              style: const TextStyle(fontSize: 13, color: ColorManager.textSecondary),
             ),
           ],
         ),
@@ -2930,7 +4019,7 @@ class _ClientsListSheetState extends State<_ClientsListSheet> {
               width: 44,
               height: 5,
               decoration: BoxDecoration(
-                color: Colors.black26,
+                color: ColorManager.shadowColor,
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
@@ -2949,7 +4038,12 @@ class _ClientsListSheetState extends State<_ClientsListSheet> {
               ],
             )
           else ...[
-            Row(children: [Expanded(child: titleBlock), closeButton]),
+            Row(
+              children: [
+                Expanded(child: titleBlock),
+                closeButton,
+              ],
+            ),
             const SizedBox(height: 10),
             _buildSearchField(controller),
           ],
@@ -3017,8 +4111,7 @@ class _ClientsListSheetState extends State<_ClientsListSheet> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          color:
-              selected ? ColorManager.primaryColor : const Color(0xFFF1F3F6),
+          color: selected ? ColorManager.primaryColor : const Color(0xFFF1F3F6),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -3048,7 +4141,8 @@ class _ClientsListSheetState extends State<_ClientsListSheet> {
   }
 
   Widget _buildEmptyState(CommercialMapController controller) {
-    final searching = controller.clientsSearchQuery.value.isNotEmpty ||
+    final searching =
+        controller.clientsSearchQuery.value.isNotEmpty ||
         _filter != _ClientsFilter.all;
 
     return Center(
@@ -3060,7 +4154,7 @@ class _ClientsListSheetState extends State<_ClientsListSheet> {
             Icon(
               searching ? Icons.search_off : Icons.groups_outlined,
               size: 44,
-              color: Colors.black26,
+              color: ColorManager.shadowColor,
             ),
             const SizedBox(height: 12),
             Text(
@@ -3147,6 +4241,7 @@ class _ClientDetailsBody extends StatelessWidget {
     required this.formatDate,
     required this.hasValue,
     this.showHeader = false,
+    this.showActions = true,
   });
 
   final CommercialMapController controller;
@@ -3156,19 +4251,24 @@ class _ClientDetailsBody extends StatelessWidget {
     required IconData icon,
     required String label,
     required dynamic value,
-  }) metaChipBuilder;
+  })
+  metaChipBuilder;
   final String Function(dynamic raw) formatDate;
   final bool Function(dynamic value) hasValue;
 
   /// The side panel has no row above it, so it repeats the client identity.
   final bool showHeader;
 
+  /// The marker popup supplies its own action bar, so it turns these off.
+  final bool showActions;
+
   @override
   Widget build(BuildContext context) {
     final coords = _clientLatLng(client);
     final hasLocation = coords.lat != null;
-    final locationColor =
-        hasLocation ? const Color(0xFF22C55E) : const Color(0xFFF59E0B);
+    final locationColor = hasLocation
+        ? const Color(0xFF22C55E)
+        : const Color(0xFFF59E0B);
     final imageUrl = controller.getClientImageUrl(client);
     final isActive = client['actif'] == true;
 
@@ -3213,6 +4313,114 @@ class _ClientDetailsBody extends StatelessWidget {
             const SizedBox(height: 14),
           ],
 
+          // Who this sub-client hangs off. Shown before anything else,
+          // because it is what makes it a sub-client rather than a prospect.
+          if (controller.isSubClientRecord(client)) ...[
+            Builder(
+              builder: (context) {
+                final parents = controller.parentNamesFor(client);
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF64748B).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.account_tree_outlined,
+                            size: 15,
+                            color: Color(0xFF475569),
+                          ),
+                          const SizedBox(width: 7),
+                          Text(
+                            parents.isEmpty
+                                ? 'Prospect — aucun client parent'
+                                : 'Client(s) parent(s)',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF475569),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (parents.isNotEmpty) ...[
+                        const SizedBox(height: 7),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: parents
+                              .map(
+                                (name) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: ClientPalette.subClientColor(
+                                      name,
+                                    ).withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF334155),
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+          ],
+
+          // A B2B client registered without its identifying fields.
+          if (controller.isIncompleteRecord(client)) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 15, color: Color(0xFFB45309)),
+                  SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      'Fiche incomplète — données à compléter',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFB45309),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+
           // Full banner image
           if (imageUrl.isNotEmpty) ...[
             ClipRRect(
@@ -3223,7 +4431,7 @@ class _ClientDetailsBody extends StatelessWidget {
                   imageUrl,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Container(
-                    color: Colors.grey.shade100,
+                    color: ColorManager.surfaceColor,
                     alignment: Alignment.center,
                     child: const Icon(
                       Icons.broken_image_outlined,
@@ -3306,7 +4514,7 @@ class _ClientDetailsBody extends StatelessWidget {
           if (hasValue(client['dateCreation']) ||
               hasValue(client['dateModification'])) ...[
             const SizedBox(height: 10),
-            Container(height: 1, color: Colors.grey.shade100),
+            Container(height: 1, color: ColorManager.dividerColor),
             const SizedBox(height: 8),
             if (hasValue(client['dateCreation']))
               _dateRow('Créé le', formatDate(client['dateCreation'])),
@@ -3314,36 +4522,38 @@ class _ClientDetailsBody extends StatelessWidget {
               _dateRow('Modifié le', formatDate(client['dateModification'])),
           ],
 
-          const SizedBox(height: 12),
+          if (showActions) ...[
+            const SizedBox(height: 12),
 
-          // Actions
-          Row(
-            children: [
-              if (hasLocation) ...[
+            // Actions
+            Row(
+              children: [
+                if (hasLocation) ...[
+                  Expanded(
+                    child: _action(
+                      icon: Icons.map_outlined,
+                      label: 'Voir sur la carte',
+                      onPressed: () {
+                        Get.back();
+                        controller.focusOnLocation(
+                          LatLng(coords.lat!, coords.lng!),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(
                   child: _action(
-                    icon: Icons.map_outlined,
-                    label: 'Voir sur la carte',
-                    onPressed: () {
-                      Get.back();
-                      controller.focusOnLocation(
-                        LatLng(coords.lat!, coords.lng!),
-                      );
-                    },
+                    icon: Icons.edit_location_alt,
+                    label: 'Modifier',
+                    primary: true,
+                    onPressed: onTap,
                   ),
                 ),
-                const SizedBox(width: 8),
               ],
-              Expanded(
-                child: _action(
-                  icon: Icons.edit_location_alt,
-                  label: 'Modifier',
-                  primary: true,
-                  onPressed: onTap,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );
@@ -3354,11 +4564,11 @@ class _ClientDetailsBody extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         children: [
-          Icon(Icons.schedule, size: 12, color: Colors.grey.shade400),
+          const Icon(Icons.schedule, size: 12, color: ColorManager.textTertiary),
           const SizedBox(width: 5),
           Text(
             '$label: ',
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            style: const TextStyle(fontSize: 11, color: ColorManager.textSecondary),
           ),
           Text(
             value,
@@ -3388,14 +4598,1168 @@ class _ClientDetailsBody extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       style: TextButton.styleFrom(
-        backgroundColor:
-            primary ? ColorManager.primaryColor : Colors.grey.shade100,
+        backgroundColor: primary
+            ? ColorManager.primaryColor
+            : ColorManager.surfaceColor,
         foregroundColor: primary ? Colors.white : const Color(0xFF444C55),
         padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Add-client speed dial
+// ---------------------------------------------------------------------------
+
+/// The one way to start a new record, sitting next to the clients list.
+///
+/// The kind is picked before the form opens rather than inside it, so the
+/// colour, the fields and the eventual map pin are settled from the first tap.
+class _AddClientSpeedDial extends StatefulWidget {
+  const _AddClientSpeedDial({
+    required this.open,
+    required this.onToggle,
+    required this.onSelect,
+  });
+
+  final bool open;
+  final VoidCallback onToggle;
+  final ValueChanged<ClientKind> onSelect;
+
+  @override
+  State<_AddClientSpeedDial> createState() => _AddClientSpeedDialState();
+}
+
+class _AddClientSpeedDialState extends State<_AddClientSpeedDial>
+    with SingleTickerProviderStateMixin {
+  // Bottom-up: the first entry sits closest to the button.
+  static const List<ClientKind> _kinds = [
+    ClientKind.prospect,
+    ClientKind.subClient,
+    ClientKind.b2b,
+  ];
+
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 280),
+    reverseDuration: const Duration(milliseconds: 200),
+    value: widget.open ? 1 : 0,
+  );
+
+  @override
+  void didUpdateWidget(_AddClientSpeedDial oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.open != oldWidget.open) {
+      widget.open ? _controller.forward() : _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            // Fully closed: take no space at all, so the collapsed dial never
+            // swallows taps meant for the map.
+            if (_controller.value == 0) return const SizedBox.shrink();
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (var i = _kinds.length - 1; i >= 0; i--)
+                  _buildOption(_kinds[i], i),
+                const SizedBox(height: 12),
+              ],
+            );
+          },
+        ),
+        _buildMainButton(),
+      ],
+    );
+  }
+
+  Widget _buildOption(ClientKind kind, int index) {
+    // Staggered so the entries unfurl outward from the button.
+    final start = 0.08 * index;
+    final animation = CurvedAnimation(
+      parent: _controller,
+      curve: Interval(start, (start + 0.7).clamp(0.0, 1.0)),
+    );
+    final value = animation.value;
+    final color = ClientPalette.forKind(kind);
+
+    return Opacity(
+      opacity: value.clamp(0.0, 1.0),
+      child: Transform.translate(
+        offset: Offset(0, (1 - value) * 18),
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                elevation: 3,
+                shadowColor: ColorManager.shadowColor,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  child: Text(
+                    ClientPalette.label(kind),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                elevation: 5,
+                shadowColor: color.withOpacity(0.5),
+                child: Ink(
+                  decoration: BoxDecoration(
+                    gradient: ClientPalette.gradient(color),
+                    shape: BoxShape.circle,
+                  ),
+                  child: InkWell(
+                    onTap: () => widget.onSelect(kind),
+                    customBorder: const CircleBorder(),
+                    child: SizedBox(
+                      width: 46,
+                      height: 46,
+                      child: Icon(
+                        ClientPalette.icon(kind),
+                        color: Colors.white,
+                        size: 21,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  Widget _buildMainButton() {
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      elevation: 6,
+      shadowColor: ColorManager.primaryColor.withOpacity(0.5),
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: ClientPalette.gradient(ColorManager.primaryColor),
+          shape: BoxShape.circle,
+        ),
+        child: InkWell(
+          onTap: widget.onToggle,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: 54,
+            height: 54,
+            child: RotationTransition(
+              // 45 degrees turns the plus into a close.
+              turns: Tween<double>(begin: 0, end: 0.125).animate(_controller),
+              child: const Icon(Icons.add, color: Colors.white, size: 28),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Parent clients picker
+// ---------------------------------------------------------------------------
+
+/// Chooses which clients a sub-client hangs off.
+///
+/// Each row is wrapped in its own [Obx]: a single Obx around the list does not
+/// work, because `ListView.builder` builds its items lazily, outside the
+/// observer's build scope, so the selection reads are never registered and the
+/// checkboxes do not react to a tap.
+class _ParentClientsPicker extends StatefulWidget {
+  const _ParentClientsPicker({required this.controller});
+
+  final CommercialMapController controller;
+
+  @override
+  State<_ParentClientsPicker> createState() => _ParentClientsPickerState();
+}
+
+class _ParentClientsPickerState extends State<_ParentClientsPicker> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> get _visible {
+    final all = widget.controller.myClients;
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) return all.toList();
+
+    return all.where((client) {
+      final name = widget.controller.getClientDisplayName(client).toLowerCase();
+      final code = (client['codeClient'] ?? '').toString().toLowerCase();
+      final phone = (client['telephone'] ?? '').toString().toLowerCase();
+      return name.contains(query) ||
+          code.contains(query) ||
+          phone.contains(query);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      snap: true,
+      snapSizes: const [0.7, 0.95],
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFF7F8FA),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+          ),
+          child: Column(
+            children: [
+              _buildHeader(controller),
+              Expanded(
+                child: Obx(() {
+                  if (controller.isLoadingMyClients.value &&
+                      controller.myClients.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final clients = _visible;
+                  if (clients.isEmpty) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Text(
+                          UiTranslations.t('noParentClientsAvailable'),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  return ListView.builder(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                    itemCount: clients.length,
+                    itemBuilder: (_, index) {
+                      final client = clients[index];
+                      final id = (client['id'] ?? '').toString();
+
+                      // One observer per row, so a tap repaints just that row.
+                      return Obx(
+                        () => _buildRow(
+                          controller: controller,
+                          client: client,
+                          id: id,
+                          selected: controller.selectedParentClientIds.contains(
+                            id,
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                }),
+              ),
+              _buildFooter(controller),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRow({
+    required CommercialMapController controller,
+    required Map<String, dynamic> client,
+    required String id,
+    required bool selected,
+  }) {
+    // The row previews the colour this parent gives its sub-clients.
+    final groupColor = ClientPalette.subClientColor(id);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: () => controller.toggleParentClientSelection(id),
+          borderRadius: BorderRadius.circular(14),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected ? groupColor : const Color(0x14000000),
+                width: selected ? 1.6 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: selected ? groupColor : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: selected ? groupColor : ColorManager.shadowColor,
+                      width: 1.6,
+                    ),
+                  ),
+                  child: selected
+                      ? const Icon(Icons.check, size: 16, color: Colors.white)
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        controller.getClientDisplayName(client),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        controller.getClientSubtitle(client),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.black45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(CommercialMapController controller) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 44,
+              height: 5,
+              decoration: BoxDecoration(
+                color: ColorManager.shadowColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  UiTranslations.t('selectParentClients'),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Obx(
+                () => Text(
+                  '${controller.selectedParentClientIds.length}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: ColorManager.primaryColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _searchController,
+            onChanged: (value) => setState(() => _query = value),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Rechercher un client parent...',
+              hintStyle: const TextStyle(fontSize: 13),
+              prefixIcon: const Icon(Icons.search, size: 20),
+              isDense: true,
+              filled: true,
+              fillColor: const Color(0xFFF1F3F6),
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFooter(CommercialMapController controller) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Color(0x14000000))),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Obx(
+            () => SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Get.back(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: controller.activeClientColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: Text(
+                  controller.selectedParentClientIds.isEmpty
+                      ? UiTranslations.t('done')
+                      : '${UiTranslations.t('done')} (${controller.selectedParentClientIds.length})',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Client fiche popup
+// ---------------------------------------------------------------------------
+
+/// The fiche that opens beside a tapped marker.
+///
+/// It behaves as its own small navigator: the notes list and the editors open
+/// in place, with a back arrow returning to the details, rather than pushing a
+/// route and losing sight of the map.
+class _ClientFichePopup extends StatefulWidget {
+  const _ClientFichePopup({
+    required this.controller,
+    required this.client,
+    required this.color,
+    required this.metaChipBuilder,
+    required this.formatDate,
+    required this.hasValue,
+    required this.actionsBuilder,
+  });
+
+  final CommercialMapController controller;
+  final Map<String, dynamic> client;
+  final Color color;
+  final Widget Function({
+    required IconData icon,
+    required String label,
+    required dynamic value,
+  })
+  metaChipBuilder;
+  final String Function(dynamic raw) formatDate;
+  final bool Function(dynamic value) hasValue;
+  final Widget Function() actionsBuilder;
+
+  @override
+  State<_ClientFichePopup> createState() => _ClientFichePopupState();
+}
+
+class _ClientFichePopupState extends State<_ClientFichePopup> {
+  final TextEditingController _noteTitle = TextEditingController();
+  final TextEditingController _noteBody = TextEditingController();
+  final TextEditingController _reminderTitle = TextEditingController();
+  final TextEditingController _reminderContext = TextEditingController();
+
+  DateTime? _reminderDate;
+  ClientReminder? _editingReminder;
+
+  String get _clientId => (widget.client['id'] ?? '').toString();
+
+  @override
+  void dispose() {
+    _noteTitle.dispose();
+    _noteBody.dispose();
+    _reminderTitle.dispose();
+    _reminderContext.dispose();
+    super.dispose();
+  }
+
+  void _go(String view) => widget.controller.popupView.value = view;
+
+  /// Where the back arrow lands: the note editor returns to the list it came
+  /// from, everything else returns to the fiche.
+  void _back(String view) => _go(view == 'noteEditor' ? 'notes' : 'details');
+
+  void _openNoteEditor([ClientNote? note]) {
+    widget.controller.editingNote.value = note;
+    _noteTitle.text = note?.title ?? '';
+    _noteBody.text = note?.body ?? '';
+    _go('noteEditor');
+  }
+
+  void _openReminderEditor([ClientReminder? reminder]) {
+    _editingReminder = reminder;
+    _reminderTitle.text = reminder?.title ?? '';
+    _reminderContext.text = reminder?.context ?? '';
+    _reminderDate = reminder?.dueAt;
+    _go('reminderEditor');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+
+    return Obx(() {
+      final view = controller.popupView.value;
+
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildHeader(view),
+          Flexible(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              // Views slide in from the right, back out to the left.
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.06, 0),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: KeyedSubtree(key: ValueKey(view), child: _buildView(view)),
+            ),
+          ),
+          if (view == 'details') widget.actionsBuilder(),
+        ],
+      );
+    });
+  }
+
+  Widget _buildHeader(String view) {
+    final isRoot = view == 'details';
+    final title = switch (view) {
+      'notes' => 'Notes',
+      'noteEditor' =>
+        widget.controller.editingNote.value == null
+            ? 'Nouvelle note'
+            : 'Modifier la note',
+      'reminderEditor' =>
+        _editingReminder == null ? 'Nouveau rappel' : 'Modifier le rappel',
+      _ => widget.controller.getClientDisplayName(widget.client),
+    };
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(isRoot ? 14 : 4, 10, 6, 10),
+      decoration: BoxDecoration(gradient: ClientPalette.gradient(widget.color)),
+      child: Row(
+        children: [
+          if (!isRoot)
+            IconButton(
+              onPressed: () => _back(view),
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              iconSize: 20,
+              tooltip: 'Retour',
+            ),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            onPressed: widget.controller.closeMarkerPopup,
+            icon: const Icon(Icons.close, color: Colors.white),
+            iconSize: 20,
+            tooltip: 'Fermer',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildView(String view) {
+    switch (view) {
+      case 'notes':
+        return _buildNotesList();
+      case 'noteEditor':
+        return _buildNoteEditor();
+      case 'reminderEditor':
+        return _buildReminderEditor();
+      default:
+        return _buildDetails();
+    }
+  }
+
+  // --- Details ---------------------------------------------------------------
+
+  Widget _buildDetails() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ClientDetailsBody(
+            controller: widget.controller,
+            client: widget.client,
+            onTap: null,
+            metaChipBuilder: widget.metaChipBuilder,
+            formatDate: widget.formatDate,
+            hasValue: widget.hasValue,
+            showActions: false,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Obx(() {
+                  final notes = widget.controller.notesForClient(_clientId);
+                  return _summaryTile(
+                    icon: Icons.push_pin_outlined,
+                    label: notes.isEmpty
+                        ? 'Aucune note'
+                        : '${notes.length} note(s)',
+                    preview: notes.isEmpty ? null : notes.first.title,
+                    onTap: () => _go('notes'),
+                  );
+                }),
+                const SizedBox(height: 8),
+                Obx(() {
+                  final reminders = widget.controller.remindersForClient(
+                    _clientId,
+                  );
+                  final pending = reminders
+                      .where((reminder) => !reminder.done)
+                      .toList();
+                  final next = pending.isEmpty ? null : pending.first;
+                  return _summaryTile(
+                    icon: Icons.alarm_outlined,
+                    label: next == null
+                        ? 'Aucun rappel'
+                        : _formatDue(next.dueAt),
+                    preview: next?.title,
+                    highlight: next?.isOverdue ?? false,
+                    onTap: () => _openReminderEditor(next),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryTile({
+    required IconData icon,
+    required String label,
+    String? preview,
+    bool highlight = false,
+    required VoidCallback onTap,
+  }) {
+    final color = highlight ? const Color(0xFFDC2626) : widget.color;
+
+    return Material(
+      color: color.withValues(alpha: 0.07),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          child: Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: color,
+                      ),
+                    ),
+                    if (preview != null && preview.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        preview,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, size: 18, color: ColorManager.shadowColor),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Notes -----------------------------------------------------------------
+
+  Widget _buildNotesList() {
+    return Obx(() {
+      final notes = widget.controller.notesForClient(_clientId);
+
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: notes.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(28),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.push_pin_outlined,
+                          size: 36,
+                          color: ColorManager.shadowColor,
+                        ),
+                        SizedBox(height: 10),
+                        const Text(
+                          'Aucune note pour ce client',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: ColorManager.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                    itemCount: notes.length,
+                    itemBuilder: (_, index) => _noteCard(notes[index]),
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _openNoteEditor(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: widget.color,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text(
+                  'Nouvelle note',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    });
+  }
+
+  Widget _noteCard(ClientNote note) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        // Slightly tinted and offset, so the list reads as pinned tickets.
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: () => _openNoteEditor(note),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0x22000000)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        note.title.isEmpty ? 'Sans titre' : note.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (note.body.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          note.body,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 5),
+                      Text(
+                        widget.formatDate(note.updatedAt.toIso8601String()),
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          color: ColorManager.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => widget.controller.deleteNote(note.id),
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  color: const Color(0xFFDC2626),
+                  tooltip: 'Supprimer',
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoteEditor() {
+    final existing = widget.controller.editingNote.value;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _editorField(label: 'Titre', controller: _noteTitle),
+          const SizedBox(height: 12),
+          _editorField(label: 'Note', controller: _noteBody, maxLines: 5),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: () async {
+              await widget.controller.saveNote(
+                clientId: _clientId,
+                title: _noteTitle.text,
+                body: _noteBody.text,
+                existing: existing,
+              );
+              _go('notes');
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.color,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Enregistrer',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- Reminder --------------------------------------------------------------
+
+  Widget _buildReminderEditor() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _editorField(label: 'Titre', controller: _reminderTitle),
+          const SizedBox(height: 12),
+          _editorField(
+            label: 'Contexte',
+            controller: _reminderContext,
+            maxLines: 4,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'ÉCHÉANCE',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.7,
+              color: widget.color,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Material(
+            color: const Color(0xFFF4F6F8),
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: _pickReminderDate,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 13,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.event_outlined, size: 18, color: widget.color),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _reminderDate == null
+                            ? 'Choisir une date et une heure'
+                            : _formatDue(_reminderDate!),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _reminderDate == null
+                              ? Colors.black45
+                              : Colors.black87,
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 18,
+                      color: ColorManager.shadowColor,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _reminderDate == null
+                ? null
+                : () async {
+                    await widget.controller.saveReminder(
+                      client: widget.client,
+                      title: _reminderTitle.text,
+                      context: _reminderContext.text,
+                      dueAt: _reminderDate!,
+                      existing: _editingReminder,
+                    );
+                    _go('details');
+                  },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.color,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: widget.color.withValues(alpha: 0.4),
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Enregistrer le rappel',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+            ),
+          ),
+          if (_editingReminder != null) ...[
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () async {
+                await widget.controller.deleteReminder(_editingReminder!.id);
+                _go('details');
+              },
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Supprimer le rappel'),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFDC2626),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickReminderDate() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _reminderDate ?? now.add(const Duration(days: 1)),
+      firstDate: now.subtract(const Duration(days: 1)),
+      lastDate: now.add(const Duration(days: 365 * 3)),
+    );
+    if (date == null || !mounted) return;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(
+        _reminderDate ?? now.add(const Duration(hours: 1)),
+      ),
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _reminderDate = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time?.hour ?? 9,
+        time?.minute ?? 0,
+      );
+    });
+  }
+
+  Widget _editorField({
+    required String label,
+    required TextEditingController controller,
+    int maxLines = 1,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            color: ColorManager.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          maxLines: maxLines,
+          style: const TextStyle(fontSize: 14),
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFFF4F6F8),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: widget.color, width: 1.5),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatDue(DateTime date) {
+    final dd = date.day.toString().padLeft(2, '0');
+    final mm = date.month.toString().padLeft(2, '0');
+    final hh = date.hour.toString().padLeft(2, '0');
+    final mi = date.minute.toString().padLeft(2, '0');
+    return '$dd/$mm/${date.year} à $hh:$mi';
   }
 }

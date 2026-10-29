@@ -8,13 +8,21 @@ import 'package:get/get.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../auth/data/models/client_model.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../auth/data/services/auth_service.dart';
 import '../../../../core/services/language_service.dart';
 import '../../../../localization/ui_translations.dart';
 import '../../../../routes/app_routes.dart';
+import 'commercial_stock_controller.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../data/models/brands_model.dart';
+import '../../data/models/sync_model.dart';
+import '../../data/services/client_annotations_service.dart';
+import '../../data/services/database_service.dart';
+import '../../data/services/reminder_notification_service.dart';
+import '../../data/services/sync_service.dart';
+import '../widgets/client_palette.dart';
+import '../../../../core/theme/app_theme.dart';
 
 class CommercialMapController extends GetxController {
   static const String _draftStorageKey = 'commercial_client_draft';
@@ -24,6 +32,19 @@ class CommercialMapController extends GetxController {
 
   final AuthService _authService = AuthService();
   final ImagePicker _imagePicker = ImagePicker();
+  final DatabaseService _db = DatabaseService.instance;
+
+  /// The offline queue.
+  ///
+  /// Found rather than injected, and registered here if nobody has: the map is
+  /// where a commercial lands after signing in and it carries no binding of
+  /// its own, so this is the first screen that needs the queue to exist.
+  SyncService get _sync => Get.isRegistered<SyncService>()
+      ? Get.find<SyncService>()
+      : Get.put<SyncService>(SyncService(), permanent: true);
+
+  /// Whether what is on screen came off the device rather than the backend.
+  final RxBool isShowingCachedClients = false.obs;
 
   // Map controller
   GoogleMapController? mapController;
@@ -75,6 +96,306 @@ class CommercialMapController extends GetxController {
   // Type + media
   final RxString registrationType = 'b2b'.obs;
   final RxBool isProspectFormMode = false.obs;
+
+  /// Whether the "add" speed dial on the map is expanded.
+  final RxBool isAddMenuOpen = false.obs;
+
+  // ---------------------------------------------------------------------------
+  // Marker selection
+  // ---------------------------------------------------------------------------
+
+  /// Marker currently tapped. Its pin is drawn larger and its details open
+  /// beside it.
+  final RxString selectedMarkerId = ''.obs;
+
+  /// The record behind the selected marker, shown in the side panel.
+  final Rx<Map<String, dynamic>?> markerPopupClient = Rx<Map<String, dynamic>?>(
+    null,
+  );
+
+  /// Which side of the screen the details panel sits on. The marker is moved
+  /// to the opposite side, whichever is nearer.
+  final RxBool markerPopupOnRight = true.obs;
+
+  /// Viewport geometry, published by the page because the controller has no
+  /// BuildContext of its own. Needed to work out which half of the screen a
+  /// marker is in and how far to scroll it.
+  Size? viewportSize;
+  double viewportPixelRatio = 1;
+
+  /// Opens the details panel for a marker and slides it clear of the panel.
+  Future<void> selectMarker({
+    required String id,
+    required LatLng position,
+    Map<String, dynamic>? client,
+  }) async {
+    selectedMarkerId.value = id;
+    markerPopupClient.value = client;
+    popupView.value = 'details';
+    editingNote.value = null;
+
+    await _refreshMarkers();
+    await _positionMarkerForPopup(position);
+  }
+
+  /// Hands the client's position to Google Maps for turn-by-turn directions.
+  ///
+  /// Uses the universal https link rather than a `google.navigation:` intent,
+  /// so it opens the Maps app when installed and falls back to the browser
+  /// when it is not.
+  Future<void> openDirectionsTo(LatLng target) => _launchMaps(
+    'https://www.google.com/maps/dir/?api=1'
+    '&destination=${target.latitude},${target.longitude}'
+    '&travelmode=driving',
+  );
+
+  /// Shows the client's position in Google Maps, without starting navigation.
+  Future<void> openInGoogleMaps(LatLng target) => _launchMaps(
+    'https://www.google.com/maps/search/?api=1'
+    '&query=${target.latitude},${target.longitude}',
+  );
+
+  Future<void> _launchMaps(String url) async {
+    try {
+      final launched = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+      if (launched) return;
+    } catch (_) {
+      // Falls through to the message below.
+    }
+
+    Get.snackbar(
+      _tr('error'),
+      "Impossible d'ouvrir Google Maps",
+      backgroundColor: ColorManager.errorColor,
+      colorText: Colors.white,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Notes and reminders
+  //
+  // Both are stored on the device: there is no server endpoint for either.
+  // ---------------------------------------------------------------------------
+
+  final ClientAnnotationsService _annotations =
+      ClientAnnotationsService.instance;
+  final ReminderNotificationService _notifications =
+      ReminderNotificationService.instance;
+
+  final RxList<ClientNote> clientNotes = <ClientNote>[].obs;
+  final RxList<ClientReminder> clientReminders = <ClientReminder>[].obs;
+
+  /// Which view the marker fiche is showing. The popup acts as its own little
+  /// navigator so notes can open in place, with a back arrow.
+  final RxString popupView = 'details'.obs;
+
+  /// The note being written or edited, when [popupView] is `noteEditor`.
+  final Rx<ClientNote?> editingNote = Rx<ClientNote?>(null);
+
+  Future<void> loadAnnotations() async {
+    clientNotes.assignAll(await _annotations.loadNotes());
+    clientReminders.assignAll(await _annotations.loadReminders());
+
+    // Android drops pending alarms on reboot or force-stop, so everything
+    // still due is re-armed at launch.
+    unawaited(_notifications.rescheduleAll(clientReminders));
+  }
+
+  List<ClientNote> notesForClient(String clientId) {
+    final notes = clientNotes
+        .where((note) => note.clientId == clientId)
+        .toList();
+    notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return notes;
+  }
+
+  List<ClientReminder> remindersForClient(String clientId) {
+    final reminders = clientReminders
+        .where((reminder) => reminder.clientId == clientId)
+        .toList();
+    reminders.sort((a, b) => a.dueAt.compareTo(b.dueAt));
+    return reminders;
+  }
+
+  Future<void> saveNote({
+    required String clientId,
+    required String title,
+    required String body,
+    ClientNote? existing,
+  }) async {
+    final now = DateTime.now();
+
+    if (existing == null) {
+      clientNotes.add(
+        ClientNote(
+          id: now.microsecondsSinceEpoch.toString(),
+          clientId: clientId,
+          title: title.trim(),
+          body: body.trim(),
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+    } else {
+      final index = clientNotes.indexWhere((note) => note.id == existing.id);
+      if (index == -1) return;
+      clientNotes[index] = existing.copyWith(
+        title: title.trim(),
+        body: body.trim(),
+        updatedAt: now,
+      );
+    }
+
+    clientNotes.refresh();
+    await _annotations.saveNotes(clientNotes);
+  }
+
+  Future<void> deleteNote(String noteId) async {
+    clientNotes.removeWhere((note) => note.id == noteId);
+    await _annotations.saveNotes(clientNotes);
+  }
+
+  Future<void> saveReminder({
+    required Map<String, dynamic> client,
+    required String title,
+    required String context,
+    required DateTime dueAt,
+    ClientReminder? existing,
+  }) async {
+    final ClientReminder saved;
+
+    if (existing != null) {
+      final index = clientReminders.indexWhere(
+        (reminder) => reminder.id == existing.id,
+      );
+      if (index == -1) return;
+      saved = existing.copyWith(
+        title: title.trim(),
+        context: context.trim(),
+        dueAt: dueAt,
+      );
+      clientReminders[index] = saved;
+    } else {
+      saved = ClientReminder(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        clientId: _safeString(client['id']),
+        clientName: getClientDisplayName(client),
+        region: clientRegion(client),
+        title: title.trim(),
+        context: context.trim(),
+        dueAt: dueAt,
+        done: false,
+      );
+      clientReminders.add(saved);
+    }
+
+    clientReminders.refresh();
+    await _annotations.saveReminders(clientReminders);
+    await _notifications.schedule(saved);
+  }
+
+  Future<void> deleteReminder(String reminderId) async {
+    clientReminders.removeWhere((reminder) => reminder.id == reminderId);
+    await _annotations.saveReminders(clientReminders);
+    await _notifications.cancel(reminderId);
+  }
+
+  Future<void> toggleReminderDone(ClientReminder reminder) async {
+    final index = clientReminders.indexWhere((item) => item.id == reminder.id);
+    if (index == -1) return;
+
+    final updated = reminder.copyWith(done: !reminder.done);
+    clientReminders[index] = updated;
+    clientReminders.refresh();
+    await _annotations.saveReminders(clientReminders);
+
+    // Completing a reminder should stop it ringing later.
+    await _notifications.schedule(updated);
+  }
+
+  /// Best available region for a client record.
+  ///
+  /// The API carries `region` and `regions` but they are often null, so
+  /// anything without one is grouped rather than dropped.
+  String clientRegion(Map<String, dynamic> client) {
+    final single = _safeString(client['region']);
+    if (single.isNotEmpty) return single;
+
+    final many = client['regions'];
+    if (many is List && many.isNotEmpty) return _safeString(many.first);
+
+    return 'Sans région';
+  }
+
+  /// Every region that currently has at least one reminder.
+  List<String> get reminderRegions {
+    final regions = clientReminders
+        .map(
+          (reminder) =>
+              reminder.region.isEmpty ? 'Sans région' : reminder.region,
+        )
+        .toSet()
+        .toList();
+    regions.sort();
+    return regions;
+  }
+
+  /// Only the clients that actually have reminders, for the list's filter.
+  List<MapEntry<String, String>> get reminderClients {
+    final byId = <String, String>{};
+    for (final reminder in clientReminders) {
+      byId[reminder.clientId] = reminder.clientName;
+    }
+
+    final entries = byId.entries.toList();
+    entries.sort(
+      (a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()),
+    );
+    return entries;
+  }
+
+  void closeMarkerPopup() {
+    if (selectedMarkerId.value.isEmpty) return;
+    selectedMarkerId.value = '';
+    markerPopupClient.value = null;
+    popupView.value = 'details';
+    editingNote.value = null;
+    unawaited(_refreshMarkers());
+  }
+
+  /// Scrolls the camera so the tapped marker ends up on the emptier side,
+  /// leaving room for the panel.
+  Future<void> _positionMarkerForPopup(LatLng target) async {
+    final controller = mapController;
+    final size = viewportSize;
+    if (controller == null || size == null) return;
+
+    try {
+      // Both getScreenCoordinate and scrollBy work in device pixels, so the
+      // comparison is done there and MediaQuery's logical size is converted.
+      final screen = await controller.getScreenCoordinate(target);
+      final widthPx = size.width * viewportPixelRatio;
+      final heightPx = size.height * viewportPixelRatio;
+
+      // A marker on the left half has more room on its right, so the panel
+      // goes right and the marker slides left.
+      final panelOnRight = screen.x < widthPx / 2;
+      markerPopupOnRight.value = panelOnRight;
+
+      final targetX = panelOnRight ? widthPx * 0.26 : widthPx * 0.74;
+      final targetY = heightPx * 0.42;
+
+      await controller.animateCamera(
+        CameraUpdate.scrollBy(screen.x - targetX, screen.y - targetY),
+      );
+    } catch (_) {
+      // Positioning is a nicety; the panel still opens without it.
+    }
+  }
+
   final RxBool accessB2B = false.obs;
   final RxString selectedImageBase64 = ''.obs;
   final Rx<Uint8List?> selectedImageBytes = Rx<Uint8List?>(null);
@@ -173,12 +494,32 @@ class CommercialMapController extends GetxController {
     super.onInit();
     _attachDraftListeners();
     _restoreDraft();
-    _loadRegisteredPins();
+    unawaited(_loadRegisteredPins().then((_) => _dropGhostLocalPins()));
     _loadSubmittedRecords();
     _loadConnectedProfile();
     _getCurrentLocation();
     unawaited(loadMyClients());
     unawaited(loadAllSubClientsAndProspectsForCommercial());
+    unawaited(loadAnnotations());
+    // This screen is where a commercial lands after signing in, and the stock
+    // page is one tap from it. Starting stock here means it is already loaded
+    // by the time they ask for it, instead of them watching it load.
+    CommercialStockController.warmUp();
+
+    // Touching the queue is what registers it, which is what starts it
+    // listening for the network coming back.
+    ever<SyncResolution?>(_sync.lastResolution, (resolution) {
+      if (resolution != null) unawaited(_onRecordSynced(resolution));
+    });
+
+    // Giving up on a record that never reached the backend takes its marker
+    // with it, rather than leaving a shop on the map that exists nowhere.
+    ever<String?>(_sync.lastDiscardedEntityId, (entityId) {
+      if (entityId == null) return;
+      registeredPins.removeWhere((pin) => pin.id == entityId);
+      unawaited(_saveRegisteredPins());
+      unawaited(_refreshMarkers());
+    });
   }
 
   Future<void> _loadConnectedProfile() async {
@@ -231,6 +572,23 @@ class CommercialMapController extends GetxController {
 
     // Clear selected parent client
     selectedParentClientId.value = '';
+
+    // The stock controller is kept alive across pages so that returning to
+    // the stock screen is instant, which means signing out has to empty it
+    // explicitly — otherwise the next representative on this device would be
+    // shown the previous one's stock as a freshly loaded list.
+    if (Get.isRegistered<CommercialStockController>()) {
+      Get.find<CommercialStockController>().clearCache();
+    }
+
+    // The cached clients belong to the representative signing out. The sync
+    // queue deliberately does not go with them: it holds work they did that
+    // has not reached the backend, and emptying it here would silently throw
+    // away a client they registered minutes ago.
+    myClients.clear();
+    mySubClients.clear();
+    isShowingCachedClients.value = false;
+    unawaited(_db.clearCachedDocuments());
 
     // Clear SharedPreferences related to commercial map
     SharedPreferences.getInstance().then((prefs) {
@@ -297,6 +655,13 @@ class CommercialMapController extends GetxController {
           ? await _authService.getClientsByCommercialId(commercialId)
           : await _authService.getMyClients();
       myClients.assignAll(clients);
+      isShowingCachedClients.value = false;
+      // Kept so the next launch without a signal opens on the same map rather
+      // than an empty one. Only after a success: a failed load must never
+      // replace good data with nothing.
+      unawaited(
+        _db.cacheDocuments(DatabaseService.collectionMyClients, clients),
+      );
 
       // Validate selected parent IDs still exist
       selectedParentClientIds.removeWhere(
@@ -315,9 +680,29 @@ class CommercialMapController extends GetxController {
       _syncApiClientsToPins(clients);
     } catch (e) {
       debugPrint('Failed to load my clients: $e');
+      await _fallBackToCachedClients();
     } finally {
       isLoadingMyClients.value = false;
     }
+  }
+
+  /// Shows the last clients that did load, when this one did not.
+  ///
+  /// Only when there is nothing on screen: a list already in memory is at
+  /// least as current as the cache, and replacing it would make a failed
+  /// refresh look like a change.
+  Future<void> _fallBackToCachedClients() async {
+    if (myClients.isNotEmpty) return;
+
+    final cached = await _db.readCachedDocuments(
+      DatabaseService.collectionMyClients,
+    );
+    if (cached.isEmpty) return;
+
+    myClients.assignAll(cached);
+    isShowingCachedClients.value = true;
+    _syncApiClientsToPins(cached);
+    debugPrint('Showing ${cached.length} clients from the device cache.');
   }
 
   Future<Position?> refreshCurrentPosition({
@@ -333,7 +718,7 @@ class CommercialMapController extends GetxController {
           Get.snackbar(
             _tr('permissionDenied'),
             _tr('allowLocation'),
-            backgroundColor: Colors.red,
+            backgroundColor: ColorManager.errorColor,
             colorText: Colors.white,
           );
           return null;
@@ -344,7 +729,7 @@ class CommercialMapController extends GetxController {
         Get.snackbar(
           _tr('permissionDenied'),
           _tr('allowLocation'),
-          backgroundColor: Colors.red,
+          backgroundColor: ColorManager.errorColor,
           colorText: Colors.white,
         );
         return null;
@@ -367,7 +752,7 @@ class CommercialMapController extends GetxController {
       Get.snackbar(
         _tr('error'),
         '${_tr('unableGetPosition')}: $e',
-        backgroundColor: Colors.red,
+        backgroundColor: ColorManager.errorColor,
         colorText: Colors.white,
       );
       return null;
@@ -443,10 +828,27 @@ class CommercialMapController extends GetxController {
         commercialId,
       );
       mySubClients.assignAll(allClients);
+      unawaited(
+        _db.cacheDocuments(DatabaseService.collectionSubClients, allClients),
+      );
       // Refresh map markers to show all sub-clients and prospects
       await _refreshMarkers();
     } catch (e) {
       debugPrint('Failed to load sub-clients/prospects: $e');
+
+      if (mySubClients.isEmpty) {
+        final cached = await _db.readCachedDocuments(
+          DatabaseService.collectionSubClients,
+        );
+        if (cached.isNotEmpty) {
+          mySubClients.assignAll(cached);
+          isShowingCachedClients.value = true;
+          await _refreshMarkers();
+          debugPrint(
+            'Showing ${cached.length} sub-clients from the device cache.',
+          );
+        }
+      }
     }
   }
 
@@ -558,39 +960,40 @@ class CommercialMapController extends GetxController {
 
       debugPrint('Updating sub-client with payload: ${jsonEncode(payload)}');
 
-      final response = await _authService.updateSubClient(
-        subClientId: subClientId,
+      final response = await _queueWrite(
+        localId: subClientId,
         payload: payload,
-      );
+        action: SyncAction.update,
+        isSubClient: true,
+        );
 
-      // Update local list
+      // The local copy takes the change either way: the user made it, and it
+      // is going to the backend whether that happens now or when the signal
+      // comes back. Showing them the old values in the meantime would be a lie
+      // about what the app is holding.
       final index = mySubClients.indexWhere(
         (client) => _safeString(client['id']) == subClientId,
       );
       if (index >= 0) {
-        mySubClients[index] = {...mySubClients[index], ...payload, ...response};
+        mySubClients[index] = {
+          ...mySubClients[index],
+          ...payload,
+          ...?response,
+        };
         mySubClients.refresh();
       }
 
       final selectedImage = selectedImageBytes.value;
       if (selectedImage != null) {
-        unawaited(
-          _uploadImageInBackground(
-            entityType: AuthService.entitySubClient,
-            entityId: subClientId,
-            imageBytes: selectedImage,
-            fileName: 'sub_client_${DateTime.now().millisecondsSinceEpoch}.jpg',
-          ),
+        await _queuePhoto(
+          entityType: AuthService.entitySubClient,
+          entityId: subClientId,
+          imageBytes: selectedImage,
+          fileName: 'sub_client_${DateTime.now().millisecondsSinceEpoch}.jpg',
         );
       }
 
-      Get.snackbar(
-        _tr('success'),
-        'Sous-client/Prospect mis à jour avec succès',
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
-      );
+      _reportSaved(message: 'Sous-client/Prospect mis à jour avec succès');
 
       _clearDraftAndFormAfterSave();
       closeClientForm();
@@ -598,7 +1001,7 @@ class CommercialMapController extends GetxController {
       Get.snackbar(
         _tr('error'),
         e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
+        backgroundColor: ColorManager.errorColor,
         colorText: Colors.white,
       );
     } finally {
@@ -628,7 +1031,7 @@ class CommercialMapController extends GetxController {
           Get.snackbar(
             _tr('success'),
             'Sous-client/Prospect supprimé avec succès',
-            backgroundColor: Colors.green,
+            backgroundColor: ColorManager.successColor,
             colorText: Colors.white,
           );
 
@@ -637,7 +1040,7 @@ class CommercialMapController extends GetxController {
           Get.snackbar(
             _tr('error'),
             e.toString().replaceAll('Exception: ', ''),
-            backgroundColor: Colors.red,
+            backgroundColor: ColorManager.errorColor,
             colorText: Colors.white,
           );
         }
@@ -692,50 +1095,194 @@ class CommercialMapController extends GetxController {
     }
   }
 
+  /// The full record behind a pin, so the details panel has something to show.
+  Map<String, dynamic>? _findClientById(String id) {
+    for (final client in myClients) {
+      if (_safeString(client['id']) == id) return client;
+    }
+    for (final subClient in mySubClients) {
+      if (_safeString(subClient['id']) == id) return subClient;
+    }
+    return null;
+  }
+
   // Handle map tap
   void onMapTap(LatLng location) {
-    if (hasPendingDragPosition.value) return;
-    selectedLocation.value = location;
+    // A tap on the map while a pin is open just dismisses it.
+    if (selectedMarkerId.value.isNotEmpty) {
+      closeMarkerPopup();
+      return;
+    }
+
+    // While picking, the centre pin is what counts: a tap just moves the map
+    // under it instead of committing a position behind the user's back.
     if (isPickingLocationFromMap.value) {
-      isPickingLocationFromMap.value = false;
-      showClientForm.value = true;
-      Get.snackbar(
-        _tr('locationUsed'),
-        _tr('currentPositionUsed'),
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
+      mapController?.animateCamera(CameraUpdate.newLatLng(location));
+      return;
+    }
+
+    if (hasPendingDragPosition.value) return;
+    if (showClientForm.value) return;
+
+    // A tap on open map is an intent to register something here. It drops a
+    // provisional pin and offers to create a client at that point, instead of
+    // the old behaviour of quietly setting a location nothing could use.
+    tappedLocation.value = location;
+    unawaited(_refreshMarkers());
+  }
+
+  /// Point the commercial tapped on an otherwise idle map.
+  final Rx<LatLng?> tappedLocation = Rx<LatLng?>(null);
+
+  void dismissTappedLocation() {
+    if (tappedLocation.value == null) return;
+    tappedLocation.value = null;
+    unawaited(_refreshMarkers());
+  }
+
+  /// Opens the chosen form with the tapped point already filled in, so the
+  /// commercial only has to complete the details.
+  void createClientAtTappedLocation(ClientKind kind) {
+    final location = tappedLocation.value;
+    if (location == null) return;
+
+    // Clears the form, so the location is applied afterwards.
+    openClientFormForKind(kind);
+    selectedLocation.value = location;
+    tappedLocation.value = null;
+
+    unawaited(_refreshMarkers());
+    _saveDraft();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Picking a client's position
+  //
+  // Entering picking mode hands the whole map over to the user: a fixed pin
+  // sits at the centre of the screen, they move the map under it, and nothing
+  // is written to the client until they confirm.
+  // ---------------------------------------------------------------------------
+
+  /// Where the centre pin currently sits. Kept in step with the camera.
+  final Rx<LatLng?> pickTarget = Rx<LatLng?>(null);
+
+  /// The position the client had when picking started, so cancelling restores
+  /// it exactly.
+  LatLng? _locationBeforePicking;
+
+  Future<void> startLocationPicking() async {
+    _locationBeforePicking = selectedLocation.value;
+
+    hasPendingDragPosition.value = false;
+    showClientForm.value = false;
+    isPickingLocationFromMap.value = true;
+
+    // Start on the client's known position; otherwise on the commercial, who
+    // is often standing in front of the shop they are registering.
+    var target = selectedLocation.value;
+    if (target == null) {
+      final position = currentPosition.value ?? await refreshCurrentPosition();
+      if (position != null) {
+        target = LatLng(position.latitude, position.longitude);
+      }
+    }
+
+    // No client position and no GPS fix: fall back to whatever the map is
+    // already showing, so the pin always stands for a real point and the
+    // confirm button is never dead.
+    if (target == null && mapController != null) {
+      final bounds = await mapController!.getVisibleRegion();
+      target = LatLng(
+        (bounds.southwest.latitude + bounds.northeast.latitude) / 2,
+        (bounds.southwest.longitude + bounds.northeast.longitude) / 2,
       );
     }
-    unawaited(_refreshMarkers());
-    _saveDraft();
+
+    pickTarget.value = target;
+    await _refreshMarkers();
+
+    if (target != null) {
+      await mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(target, 17),
+      );
+    }
   }
 
-  void confirmDragPosition() {
+  /// Called as the camera moves so the readout matches what will be saved.
+  void updatePickTarget(LatLng target) {
+    if (!isPickingLocationFromMap.value) return;
+    pickTarget.value = target;
+  }
+
+  void confirmPickedLocation() {
+    final target = pickTarget.value;
+    if (target == null) return;
+
+    selectedLocation.value = target;
+    isPickingLocationFromMap.value = false;
     hasPendingDragPosition.value = false;
     showClientForm.value = true;
+    _locationBeforePicking = null;
+
     unawaited(_refreshMarkers());
     _saveDraft();
   }
 
-  Future<void> pickLocationFromMap() async {
+  void cancelLocationPicking() {
+    selectedLocation.value = _locationBeforePicking;
+    isPickingLocationFromMap.value = false;
     hasPendingDragPosition.value = false;
-    isPickingLocationFromMap.value = true;
-    showClientForm.value = false;
-    Get.snackbar(
-      _tr('locationUsed'),
-      _tr('touchMapBoutique'),
-      backgroundColor: Colors.orange,
-      colorText: Colors.white,
-      duration: const Duration(seconds: 2),
-    );
+    showClientForm.value = true;
+    _locationBeforePicking = null;
+
+    unawaited(_refreshMarkers());
   }
+
+  Future<void> pickLocationFromMap() => startLocationPicking();
 
   // Open client form
   void openClientForm() {
     showClientForm.value = true;
     unawaited(loadMyClients());
   }
+
+  /// Opens a blank form for one of the three kinds of record.
+  ///
+  /// The kind is chosen up front, on the speed dial, rather than buried in a
+  /// selector inside the form: it decides the colour, the fields and what the
+  /// map pin will look like.
+  void openClientFormForKind(ClientKind kind) {
+    _clearForm();
+    selectedClientForUpdate.value = null;
+    selectedLocation.value = null;
+    selectedImageBase64.value = '';
+    selectedImageBytes.value = null;
+    selectedBrands.clear();
+    selectedParentClientIds.clear();
+
+    registrationType.value = kind == ClientKind.b2b ? 'b2b' : 'sub_client';
+    isProspectFormMode.value = kind == ClientKind.prospect;
+
+    showClientForm.value = true;
+    unawaited(loadMyClients());
+  }
+
+  /// What the form is currently editing, for colouring and labelling.
+  ClientKind get activeClientKind {
+    if (registrationType.value != 'sub_client') return ClientKind.b2b;
+    return isProspectFormMode.value
+        ? ClientKind.prospect
+        : ClientKind.subClient;
+  }
+
+  /// Colour of the record being edited, following the parent group for a
+  /// sub-client once a parent has been chosen.
+  Color get activeClientColor => ClientPalette.forKind(
+    activeClientKind,
+    parentId: selectedParentClientIds.isNotEmpty
+        ? selectedParentClientIds.first
+        : null,
+  );
 
   // Close client form
   void closeClientForm() {
@@ -810,7 +1357,7 @@ class CommercialMapController extends GetxController {
       Get.snackbar(
         _tr('locationUsed'),
         _tr('currentPositionUsed'),
-        backgroundColor: Colors.green,
+        backgroundColor: ColorManager.successColor,
         colorText: Colors.white,
         duration: const Duration(seconds: 2),
       );
@@ -881,7 +1428,9 @@ class CommercialMapController extends GetxController {
   bool isParentClientSelected(String parentClientId) {
     final id = parentClientId.toString().trim();
     final result = selectedParentClientIds.contains(id);
-    debugPrint('isParentClientSelected($id) => $result | Current: ${selectedParentClientIds.toList()}');
+    debugPrint(
+      'isParentClientSelected($id) => $result | Current: ${selectedParentClientIds.toList()}',
+    );
     return result;
   }
 
@@ -945,7 +1494,7 @@ class CommercialMapController extends GetxController {
       Get.snackbar(
         _tr('imageError'),
         '${_tr('unableSelectImage')}: $e',
-        backgroundColor: Colors.red,
+        backgroundColor: ColorManager.errorColor,
         colorText: Colors.white,
       );
     } finally {
@@ -965,10 +1514,29 @@ class CommercialMapController extends GetxController {
 
       final prefs = await SharedPreferences.getInstance();
       final connectedCommercialId = prefs.getString('connected_user_id');
-      final connectedCommercialName = prefs.getString('connected_user_name');
 
       if (registrationType.value == 'sub_client') {
         // Parent client IDs are now optional - empty list will create a PROSPECT type
+
+        // Checked here rather than left to the backend.
+        //
+        // Writes no longer wait for the network, so the form closes and says
+        // "saved" before anything has been sent — which means a payload the
+        // backend was always going to refuse would be discovered minutes
+        // later, in the queue, with the form long gone and the commercial
+        // somewhere else. The three fields `/sub-clients` insists on are
+        // checked while the form is still open and can still be fixed.
+        final missing = <String>[
+          if (nomController.text.trim().isEmpty) 'le nom',
+          if (prenomController.text.trim().isEmpty) 'le prénom',
+          if (telephoneController.text.trim().isEmpty) 'le téléphone',
+        ];
+        if (missing.isNotEmpty) {
+          throw Exception(
+            'Le serveur exige ${missing.join(', ')} pour un sous-client ou '
+            'un prospect.',
+          );
+        }
 
         final payload = _buildSubClientPayload(location);
         if (connectedCommercialId != null && connectedCommercialId.isNotEmpty) {
@@ -977,56 +1545,57 @@ class CommercialMapController extends GetxController {
 
         debugPrint('SUB-CLIENT payload sent: ${jsonEncode(payload)}');
 
-        // If no parent IDs selected, use empty array (will be prospect type on backend)
-        // Otherwise use first parent ID for the API call
-        final firstParentId = selectedParentClientIds.isNotEmpty
-            ? selectedParentClientIds.first
-            : null;
+        // The id the record answers to until the backend gives it one. With a
+        // connection it is replaced a second later by the real one; without,
+        // it is what the marker, the photo and any edit all hang off until the
+        // queue drains.
+        final localId = SyncService.newLocalId();
 
-        final response = await _authService.createSubClient(
-          parentClientId: firstParentId,
+        final response = await _queueWrite(
+          localId: localId,
           payload: payload,
-        );
+          action: SyncAction.create,
+          isSubClient: true,
+          );
 
-        final entityId = _safeString(response['id']).isNotEmpty
-            ? _safeString(response['id'])
-            : _safeString(response['userId']);
+        final queued = response == null;
+        final entityId = queued
+            ? localId
+            : (_safeString(response['id']).isNotEmpty
+                  ? _safeString(response['id'])
+                  : _safeString(response['userId']));
 
         final snapshotImageBytes = selectedImageBytes.value;
         if (snapshotImageBytes != null && entityId.isNotEmpty) {
-          unawaited(
-            _uploadImageInBackground(
-              entityType: AuthService.entitySubClient,
-              entityId: entityId,
-              imageBytes: snapshotImageBytes,
-              fileName:
-                  'sub_client_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            ),
+          await _queuePhoto(
+            entityType: AuthService.entitySubClient,
+            entityId: entityId,
+            imageBytes: snapshotImageBytes,
+            fileName: 'sub_client_${DateTime.now().millisecondsSinceEpoch}.jpg',
           );
         }
 
         await _saveSubmittedRecord(
           type: 'sub_client',
           sentPayload: payload,
-          responsePayload: response,
+          responsePayload: response ?? {'id': localId, 'pendingSync': true},
         );
 
-        final markerLabel = _safeString(response['nomAgence']).isNotEmpty
-            ? _safeString(response['nomAgence'])
-            : _safeString(response['codeClient']).isNotEmpty
-            ? _safeString(response['codeClient'])
+        final markerLabel = _safeString(response?['nomAgence']).isNotEmpty
+            ? _safeString(response?['nomAgence'])
+            : _safeString(response?['codeClient']).isNotEmpty
+            ? _safeString(response?['codeClient'])
             : '${nomController.text.trim()} ${prenomController.text.trim()}'
                   .trim();
 
         await _addRegisteredPin(
-          id: _safeString(response['id']).isNotEmpty
-              ? _safeString(response['id'])
-              : DateTime.now().millisecondsSinceEpoch.toString(),
+          id: entityId.isNotEmpty ? entityId : localId,
           label: markerLabel.isEmpty ? _tr('subClientLabel') : markerLabel,
           location: location,
           imageBase64: selectedImageBase64.value,
           type: 'sub_client',
         );
+
       } else {
         // Build B2B client payload
         var sentPayload = <String, dynamic>{
@@ -1057,57 +1626,66 @@ class CommercialMapController extends GetxController {
 
         debugPrint('B2B payload sent: ${jsonEncode(sentPayload)}');
 
-        final response = await _authService.createClientWithPayload(
+        final localId = SyncService.newLocalId();
+
+        final response = await _queueWrite(
+          localId: localId,
           payload: sentPayload,
-        );
+          action: SyncAction.create,
+          isSubClient: false,
+          );
 
-        final entityId = _safeString(response['id']).isNotEmpty
-            ? _safeString(response['id'])
-            : (_safeString(response['userId']).isNotEmpty
-                  ? _safeString(response['userId'])
-                  : _safeString(response['codeClient']));
+        final queued = response == null;
+        final entityId = queued
+            ? localId
+            : (_safeString(response['id']).isNotEmpty
+                  ? _safeString(response['id'])
+                  : (_safeString(response['userId']).isNotEmpty
+                        ? _safeString(response['userId'])
+                        : _safeString(response['codeClient'])));
 
-        // Save marques/brands separately after client creation
+        // Marques are a second call against the new client. Queued behind the
+        // create when there is nothing to send it over; the queue's ordering
+        // is what guarantees it arrives after the client exists.
         if (selectedBrands.isNotEmpty && entityId.isNotEmpty) {
+          final marques = {
+            'marques': selectedBrands.map((brand) => brand.displayName).toList(),
+          };
+
           try {
-            await _authService.updateClient(
-              clientId: entityId,
-              payload: {
-                'marques': selectedBrands
-                    .map((brand) => brand.displayName)
-                    .toList(),
-              },
-            );
-            debugPrint('Marques saved successfully for client: $entityId');
+            await _queueWrite(
+              localId: entityId,
+              payload: marques,
+              action: SyncAction.update,
+              isSubClient: false,
+              );
           } catch (e) {
+            // Never worth failing the creation over: the client is registered,
+            // and the marques can be set again from the fiche.
             debugPrint('Failed to save marques: $e');
           }
         }
 
         final snapshotImageBytes = selectedImageBytes.value;
         if (snapshotImageBytes != null && entityId.isNotEmpty) {
-          unawaited(
-            _uploadImageInBackground(
-              entityType: AuthService.entityClient,
-              entityId: entityId,
-              imageBytes: snapshotImageBytes,
-              fileName: 'client_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            ),
+          await _queuePhoto(
+            entityType: AuthService.entityClient,
+            entityId: entityId,
+            imageBytes: snapshotImageBytes,
+            fileName: 'client_${DateTime.now().millisecondsSinceEpoch}.jpg',
           );
         }
 
         await _saveSubmittedRecord(
           type: 'b2b',
           sentPayload: sentPayload,
-          responsePayload: response,
+          responsePayload: response ?? {'id': localId, 'pendingSync': true},
         );
 
         await _addRegisteredPin(
-          id: _safeString(response['userId']).isNotEmpty
-              ? _safeString(response['userId'])
-              : DateTime.now().millisecondsSinceEpoch.toString(),
-          label: _safeString(response['raisonSociale']).isNotEmpty
-              ? _safeString(response['raisonSociale'])
+          id: entityId.isNotEmpty ? entityId : localId,
+          label: _safeString(response?['raisonSociale']).isNotEmpty
+              ? _safeString(response?['raisonSociale'])
               : (raisonSocialeController.text.trim().isEmpty
                     ? _tr('b2bClientLabel')
                     : raisonSocialeController.text.trim()),
@@ -1115,15 +1693,10 @@ class CommercialMapController extends GetxController {
           imageBase64: selectedImageBase64.value,
           type: 'b2b',
         );
+
       }
 
-      Get.snackbar(
-        _tr('success'),
-        _tr('clientCreated'),
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
-      );
+      _reportSaved(message: _tr('clientCreated'));
 
       _clearDraftAndFormAfterSave();
       closeClientForm();
@@ -1131,7 +1704,7 @@ class CommercialMapController extends GetxController {
       Get.snackbar(
         _tr('error'),
         e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
+        backgroundColor: ColorManager.errorColor,
         colorText: Colors.white,
       );
     } finally {
@@ -1151,6 +1724,97 @@ class CommercialMapController extends GetxController {
       return;
     }
     await createClient();
+  }
+
+  /// Whether a record is a sub-client or prospect rather than a direct client.
+  ///
+  /// Checked against the loaded sub-clients first, because the `type` field is
+  /// not always present on records that came from a marker.
+  bool isSubClientRecord(Map<String, dynamic> client) {
+    final id = _safeString(client['id']);
+    if (id.isNotEmpty) {
+      for (final subClient in mySubClients) {
+        if (_safeString(subClient['id']) == id) return true;
+      }
+    }
+
+    final type = _safeString(client['type']).toUpperCase();
+    return type == 'PROSPECT' || type == 'SOUS_CLIENT';
+  }
+
+  /// Names of the clients a sub-client hangs off, for display on its fiche.
+  List<String> parentNamesFor(Map<String, dynamic> client) {
+    final ids = client['parentClientIds'];
+    if (ids is! List) return [];
+
+    final names = <String>[];
+    for (final raw in ids) {
+      final id = _safeString(raw);
+      if (id.isEmpty) continue;
+
+      var name = id;
+      for (final candidate in myClients) {
+        if (_safeString(candidate['id']) == id) {
+          name = getClientDisplayName(candidate);
+          break;
+        }
+      }
+      names.add(name);
+    }
+    return names;
+  }
+
+  /// Opens the form that matches the record: a sub-client keeps its own form
+  /// rather than being edited as if it were a B2B client.
+  void selectRecordForEdit(Map<String, dynamic> client) {
+    if (isSubClientRecord(client)) {
+      selectSubClientForEdit(client);
+    } else {
+      unawaited(selectClientForLocationUpdate(client));
+    }
+  }
+
+  /// Starts a *new* B2B client prefilled from a sub-client or prospect.
+  ///
+  /// Nothing is deleted and nothing is updated: the source record stays as it
+  /// is until the commercial saves the new client, and whatever is not known
+  /// is simply left blank for them to fill in.
+  void convertToB2BClient(Map<String, dynamic> source) {
+    _clearForm();
+    selectedClientForUpdate.value = null;
+    selectedParentClientIds.clear();
+    selectedBrands.clear();
+
+    registrationType.value = 'b2b';
+    isProspectFormMode.value = false;
+
+    raisonSocialeController.text = getClientDisplayName(source);
+    telephoneController.text = _safeString(source['telephone']);
+    emailController.text = _safeString(source['email']);
+    noteController.text = _safeString(source['note']);
+    _restoreSelectedBrands(source);
+
+    final latitude = _toDouble(source['latitude']);
+    final longitude = _toDouble(source['longitude']);
+    selectedLocation.value = (latitude != null && longitude != null)
+        ? LatLng(latitude, longitude)
+        : null;
+
+    closeMarkerPopup();
+    showClientForm.value = true;
+    unawaited(_refreshMarkers());
+  }
+
+  /// A record that reached the backend without the fields that identify a
+  /// real B2B client. Flagged rather than rejected, so a commercial can
+  /// register what they saw and complete it later.
+  bool isIncompleteRecord(Map<String, dynamic> client) {
+    if (isSubClientRecord(client)) return false;
+
+    for (final field in ['codeClient', 'raisonSociale', 'matriculeFiscal']) {
+      if (_safeString(client[field]).isEmpty) return true;
+    }
+    return false;
   }
 
   Future<void> selectClientForLocationUpdate(
@@ -1184,13 +1848,9 @@ class CommercialMapController extends GetxController {
         );
       }
     } else {
+      // No snackbar: the form's position section states this plainly and
+      // offers the button that fixes it.
       selectedLocation.value = null;
-      Get.snackbar(
-        _tr('locationUsed'),
-        _tr('touchMapBoutique'),
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
-      );
     }
 
     showClientForm.value = true;
@@ -1251,39 +1911,41 @@ class CommercialMapController extends GetxController {
         throw Exception(_tr('noData'));
       }
 
-      final response = await _authService.updateClient(
-        clientId: clientId,
+      final response = await _queueWrite(
+        localId: clientId,
         payload: payload,
-      );
+        action: SyncAction.update,
+        isSubClient: false,
+        );
+
+      final queued = response == null;
 
       final index = myClients.indexWhere(
         (client) => _safeString(client['id']) == clientId,
       );
       if (index >= 0) {
-        myClients[index] = {...myClients[index], ...payload, ...response};
+        myClients[index] = {...myClients[index], ...payload, ...?response};
         myClients.refresh();
       }
 
       final selectedImage = selectedImageBytes.value;
       if (selectedImage != null) {
-        unawaited(
-          _uploadImageInBackground(
-            entityType: AuthService.entityClient,
-            entityId: clientId,
-            imageBytes: selectedImage,
-            fileName: 'client_${DateTime.now().millisecondsSinceEpoch}.jpg',
-          ),
+        await _queuePhoto(
+          entityType: AuthService.entityClient,
+          entityId: clientId,
+          imageBytes: selectedImage,
+          fileName: 'client_${DateTime.now().millisecondsSinceEpoch}.jpg',
         );
       }
 
-      await loadMyClients();
+      // Only worth asking the backend for the list when the backend has the
+      // change. Queued, it would answer with the values the user just edited
+      // away and undo them on screen.
+      if (!queued) {
+        await loadMyClients();
+      }
 
-      Get.snackbar(
-        _tr('success'),
-        _tr('clientCreated'),
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-      );
+      _reportSaved(message: _tr('clientCreated'));
 
       _clearDraftAndFormAfterSave();
     } catch (e) {
@@ -1291,7 +1953,7 @@ class CommercialMapController extends GetxController {
       Get.snackbar(
         _tr('error'),
         e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
+        backgroundColor: ColorManager.errorColor,
         colorText: Colors.white,
       );
     } finally {
@@ -1299,30 +1961,30 @@ class CommercialMapController extends GetxController {
     }
   }
 
-  LatLng _resolveClientLocation() {
-    if (selectedLocation.value != null) {
-      return selectedLocation.value!;
-    }
-
-    if (currentPosition.value != null) {
-      return LatLng(
-        currentPosition.value!.latitude,
-        currentPosition.value!.longitude,
-      );
-    }
-
-    return const LatLng(36.8065, 10.1815);
-  }
-
   Map<String, dynamic> _buildSubClientPayload(LatLng location) {
     final payload = <String, dynamic>{
-      'nom': nomController.text.trim(),
-      'prenom': prenomController.text.trim(),
-      'telephone': telephoneController.text.trim(),
-      'nomAgence': nomAgenceController.text.trim(),
       'latitude': location.latitude,
       'longitude': location.longitude,
     };
+
+    // Empty fields are left out of the payload, not sent as "".
+    //
+    // The backend validates what it is given rather than what is missing, so
+    // an empty string is a *bad* value where an absent field is simply an
+    // unknown one: sending `nom: ""` is refused with "un ou plusieurs champs
+    // sont invalides", which is exactly how a prospect registered from the
+    // street — a shop front, a position and nothing else yet — used to fail.
+    void putIfNotEmpty(String key, String value) {
+      final normalized = value.trim();
+      if (normalized.isNotEmpty) {
+        payload[key] = normalized;
+      }
+    }
+
+    putIfNotEmpty('nom', nomController.text);
+    putIfNotEmpty('prenom', prenomController.text);
+    putIfNotEmpty('telephone', telephoneController.text);
+    putIfNotEmpty('nomAgence', nomAgenceController.text);
 
     // Add parent client IDs (multiple parents supported)
     // If empty, backend will create type PROSPECT; if filled, creates type SOUS_CLIENT
@@ -1412,26 +2074,136 @@ class CommercialMapController extends GetxController {
     );
   }
 
-  Future<void> _uploadImageInBackground({
+  /// Records a write and hands it to the queue. Never waits for the network.
+  ///
+  /// Saving is a local operation: the record is written down, the form closes,
+  /// and the backend hears about it a moment later from the queue — or in ten
+  /// minutes, if that is when the signal comes back. The commercial's
+  /// experience is the same either way, which is the point: the only thing
+  /// they should ever wait for is the phone.
+  ///
+  /// Going through the backend first would mean waiting on it, and the worst
+  /// case is not a dead network — it is a weak one, where the request sits
+  /// until the timeout gives up thirty seconds later with the form still open.
+  /// The queue is written first, so there is nothing to wait for and nothing
+  /// to lose.
+  ///
+  /// Always returns null, so callers carry on with [localId] as the record's
+  /// id; [_onRecordSynced] swaps in the real one behind them when it arrives.
+  Future<Map<String, dynamic>?> _queueWrite({
+    required String localId,
+    required Map<String, dynamic> payload,
+    required SyncAction action,
+    required bool isSubClient,
+  }) async {
+    await _sync.queueClientWrite(
+      clientId: localId,
+      payload: payload,
+      action: action,
+      isSubClient: isSubClient,
+    );
+    return null;
+  }
+
+  /// Queues a photo behind the record it belongs to.
+  Future<void> _queuePhoto({
     required String entityType,
     required String entityId,
     required Uint8List imageBytes,
     required String fileName,
   }) async {
-    try {
-      final response = await _authService.uploadEntityImage(
-        entityType: entityType,
-        entityId: entityId,
-        imageBytes: imageBytes,
-        fileName: fileName,
-      );
-      debugPrint(
-        'Image upload completed for $entityType/$entityId: ${jsonEncode(response)}',
-      );
-    } catch (e) {
-      debugPrint('Image upload failed for $entityType/$entityId: $e');
-    }
+    await _sync.queuePhotoUpload(
+      entityId: entityId,
+      ownerType: entityType,
+      imageBytes: imageBytes,
+      fileName: fileName,
+    );
   }
+
+  /// Confirms the save, in the same words whatever the network is doing.
+  ///
+  /// The record is saved — that is true the moment it is written down, and
+  /// which second it reaches the backend is not something a commercial should
+  /// have to think about. The badge on the map is there for anyone who wants
+  /// to know; nothing else mentions it.
+  void _reportSaved({required String message}) {
+    Get.snackbar(
+      _tr('success'),
+      message,
+      backgroundColor: ColorManager.successColor,
+      colorText: Colors.white,
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  /// Takes off the map any record that can never become real.
+  ///
+  /// A pin under a `local_…` id is a record the backend has not seen yet, and
+  /// the queue is what is going to tell it. If there is no longer anything
+  /// queued for that id — the user gave up on it, or it was dropped with the
+  /// create it belonged to — then nothing will ever create it, and leaving the
+  /// marker there shows a shop that exists on no system at all.
+  Future<void> _dropGhostLocalPins() async {
+    final locals = registeredPins
+        .where((pin) => SyncService.isLocalId(pin.id))
+        .toList();
+    if (locals.isEmpty) return;
+
+    final queued = await _db.getAllSyncItems();
+    final stillComing = queued.map((item) => item.entityId).toSet();
+
+    final ghosts = locals
+        .where((pin) => !stillComing.contains(pin.id))
+        .map((pin) => pin.id)
+        .toSet();
+    if (ghosts.isEmpty) return;
+
+    registeredPins.removeWhere((pin) => ghosts.contains(pin.id));
+    await _saveRegisteredPins();
+    await _refreshMarkers();
+    debugPrint('Removed ${ghosts.length} local pin(s) with nothing queued.');
+  }
+
+  /// A queued create has landed and the backend has named the record.
+  ///
+  /// The marker and the stored pin are still filed under the local id, so they
+  /// are moved across — otherwise the next load would bring the same shop back
+  /// from the backend and the map would show it twice.
+  Future<void> _onRecordSynced(SyncResolution resolution) async {
+    final index = registeredPins.indexWhere(
+      (pin) => pin.id == resolution.localId,
+    );
+
+    if (index >= 0) {
+      final pin = registeredPins[index];
+      registeredPins[index] = _RegisteredClientPin(
+        id: resolution.serverId,
+        label: pin.label,
+        latitude: pin.latitude,
+        longitude: pin.longitude,
+        imageBase64: pin.imageBase64,
+        imageUrl: pin.imageUrl,
+        type: pin.type,
+      );
+      await _saveRegisteredPins();
+    }
+
+    if (selectedMarkerId.value == resolution.localId) {
+      selectedMarkerId.value = resolution.serverId;
+    }
+
+    await _refreshMarkers();
+
+    // The record now exists on the backend, so the lists it belongs to are out
+    // of date by exactly one entry.
+    unawaited(loadMyClients());
+    unawaited(loadAllSubClientsAndProspectsForCommercial());
+  }
+
+  // Photos used to be uploaded straight from here, in the background but
+  // outside anything that remembered them: an upload that failed was simply
+  // gone, and nobody was told. They go through the queue now, like every
+  // other write, which is what makes them survive a dropped connection.
 
   void _syncApiClientsToPins(List<Map<String, dynamic>> clients) {
     for (final client in clients) {
@@ -1511,17 +2283,20 @@ class CommercialMapController extends GetxController {
       final icon = await _buildClientMarkerIcon(
         imageBase64: resolvedImageBase64,
         markerType: pin.type,
+        selected: selectedMarkerId.value == pin.id,
       );
+      final position = LatLng(pin.latitude, pin.longitude);
+
       nextMarkers.add(
         Marker(
           markerId: MarkerId('registered_${pin.id}'),
-          position: LatLng(pin.latitude, pin.longitude),
+          position: position,
           icon: icon,
-          infoWindow: InfoWindow(
-            title: pin.label,
-            snippet: pin.type == 'sub_client'
-                ? _tr('subClientLabel')
-                : _tr('b2bClientLabel'),
+          // No InfoWindow: the details open in our own side panel instead.
+          onTap: () => selectMarker(
+            id: pin.id,
+            position: position,
+            client: _findClientById(pin.id),
           ),
         ),
       );
@@ -1535,43 +2310,74 @@ class CommercialMapController extends GetxController {
         final subClientType = _safeString(subClient['type']).isEmpty
             ? 'SOUS_CLIENT'
             : _safeString(subClient['type']);
+
+        // Sub-clients are coloured by the parent they belong to, so one
+        // parent's network reads as one group on the map.
+        final parentIds = subClient['parentClientIds'];
+        final parentId = parentIds is List && parentIds.isNotEmpty
+            ? _safeString(parentIds.first)
+            : '';
+
+        final subClientId = _safeString(subClient['id']);
         final subClientIcon = await _buildClientMarkerIcon(
           imageBase64: '',
           markerType: subClientType,
+          parentId: parentId,
+          selected: selectedMarkerId.value == subClientId,
         );
-        final displayName = getClientDisplayName(subClient);
+        final position = LatLng(lat, lng);
+
         nextMarkers.add(
           Marker(
-            markerId: MarkerId('subclient_${subClient["id"]}'),
-            position: LatLng(lat, lng),
+            markerId: MarkerId('subclient_$subClientId'),
+            position: position,
             icon: subClientIcon,
-            infoWindow: InfoWindow(
-              title: displayName,
-              snippet: _tr('subClientLabel'),
+            onTap: () => selectMarker(
+              id: subClientId,
+              position: position,
+              client: subClient,
             ),
           ),
         );
       }
     }
 
-    // Add selected location for editing
-    if (selectedLocation.value != null) {
+    // Provisional pin for a point the commercial just tapped. Neutral grey,
+    // because no kind has been chosen yet.
+    if (tappedLocation.value != null && !isPickingLocationFromMap.value) {
+      nextMarkers.add(
+        Marker(
+          markerId: const MarkerId('tapped_location'),
+          position: tappedLocation.value!,
+          icon: await _buildClientMarkerIcon(
+            imageBase64: '',
+            markerType: 'pending',
+          ),
+          onTap: () {},
+        ),
+      );
+    }
+
+    // Add selected location for editing. Hidden while picking, where the
+    // floating centre pin stands in for it.
+    if (selectedLocation.value != null && !isPickingLocationFromMap.value) {
+      // The pin being placed already wears the colour the record will have.
       final selectedPickerIcon = await _buildClientMarkerIcon(
         imageBase64: selectedImageBase64.value,
-        markerType: registrationType.value,
+        markerType: isProspectFormMode.value
+            ? 'PROSPECT'
+            : registrationType.value,
+        parentId: selectedParentClientIds.isNotEmpty
+            ? selectedParentClientIds.first
+            : null,
       );
       nextMarkers.add(
         Marker(
           markerId: const MarkerId('selected_location'),
           position: selectedLocation.value!,
           icon: selectedPickerIcon,
-          draggable: true,
-          onDragEnd: (newPosition) {
-            selectedLocation.value = newPosition;
-            hasPendingDragPosition.value = true;
-            unawaited(_refreshMarkers());
-            _saveDraft();
-          },
+          // Not draggable on purpose: picking mode is the single, explicit
+          // way to move a client's position.
           infoWindow: InfoWindow(
             title: _tr('newLocation'),
             snippet: _tr('activeSelection'),
@@ -1608,56 +2414,145 @@ class CommercialMapController extends GetxController {
     return encoded;
   }
 
+  /// Rendered marker bitmaps, keyed by what actually changes their pixels.
+  ///
+  /// Every `_refreshMarkers()` used to redraw each pin from scratch — load the
+  /// asset, decode it, paint a canvas, re-encode a PNG — for every marker, and
+  /// that method runs on almost every state change. Caching turns a map with
+  /// N pins from N renders per refresh into N renders in total.
+  final Map<String, BitmapDescriptor> _markerIconCache = {};
+
+  /// Draws a pin with depth: a blurred ground shadow, a teardrop body shaded
+  /// from light to dark, a glossy highlight, and a white disc carrying either
+  /// the client's photo or the glyph for its kind.
+  /// Displayed pin size in logical pixels. The artwork is always drawn at
+  /// [_markerCanvasWidth] x [_markerCanvasHeight] and scaled down on display,
+  /// so the gradient and glyph stay crisp at any size.
+  static const double _markerDisplayWidth = 54;
+  static const double _markerDisplayHeight = 68;
+
+  /// How much a tapped pin grows, so the selection is obvious.
+  static const double _markerSelectedScale = 1.5;
+
+  static const double _markerCanvasWidth = 150;
+  static const double _markerCanvasHeight = 190;
+
   Future<BitmapDescriptor> _buildClientMarkerIcon({
     String? imageBase64,
     required String markerType,
+    String? parentId,
+    bool selected = false,
   }) async {
+    final color = ClientPalette.forType(markerType, parentId: parentId);
+    final photo = imageBase64 ?? '';
+    final cacheKey = '${color.toARGB32()}|${photo.hashCode}|$selected';
+
+    final cached = _markerIconCache[cacheKey];
+    if (cached != null) return cached;
+
     try {
-      final pinAsset = await rootBundle.load('assets/images/picker.png');
-      final pinBytes = pinAsset.buffer.asUint8List();
-      final pinImage = await _decodeImage(pinBytes, targetWidth: 120);
+      const width = _markerCanvasWidth;
+      const height = _markerCanvasHeight;
+      const cx = width / 2;
+      const headRadius = 56.0;
+      const headCenterY = headRadius + 10;
+      const tipY = height - 14;
 
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
-      const size = Size(140, 180);
 
-      final pinX = (size.width - pinImage.width) / 2;
-      final pinPaint = Paint();
-      if (markerType == 'b2b') {
-        pinPaint.colorFilter = const ColorFilter.mode(
-          Colors.green,
-          BlendMode.modulate,
-        );
-      } else if (markerType == 'PROSPECT') {
-        pinPaint.colorFilter = const ColorFilter.mode(
-          Colors.blue,
-          BlendMode.modulate,
-        );
-      } else if (markerType == 'SOUS_CLIENT') {
-        pinPaint.colorFilter = const ColorFilter.mode(
-          Colors.orange,
-          BlendMode.modulate,
-        );
-      }
-      canvas.drawImage(pinImage, Offset(pinX, 44), pinPaint);
+      // Ground shadow, so the pin reads as standing on the map.
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: const Offset(cx, tipY - 2),
+          width: headRadius * 1.15,
+          height: headRadius * 0.4,
+        ),
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.28)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+      );
 
-      if (imageBase64 != null && imageBase64.isNotEmpty) {
-        final avatarBytes = base64Decode(imageBase64);
-        final avatarImage = await _decodeImage(avatarBytes, targetWidth: 56);
-        const avatarCenter = Offset(70, 36);
-        const avatarRadius = 28.0;
+      // Teardrop: tip at the bottom, round head on top.
+      final body = Path()
+        ..moveTo(cx, tipY)
+        ..quadraticBezierTo(
+          cx - headRadius * 0.92,
+          headCenterY + headRadius * 0.78,
+          cx - headRadius,
+          headCenterY,
+        )
+        ..arcToPoint(
+          const Offset(cx + headRadius, headCenterY),
+          radius: const Radius.circular(headRadius),
+        )
+        ..quadraticBezierTo(
+          cx + headRadius * 0.92,
+          headCenterY + headRadius * 0.78,
+          cx,
+          tipY,
+        )
+        ..close();
 
-        canvas.drawCircle(
-          avatarCenter,
-          avatarRadius + 3,
-          Paint()..color = Colors.white,
+      final hsl = HSLColor.fromColor(color);
+      final light = hsl
+          .withLightness((hsl.lightness + 0.14).clamp(0.0, 1.0))
+          .toColor();
+      final dark = hsl
+          .withLightness((hsl.lightness - 0.18).clamp(0.0, 1.0))
+          .toColor();
+
+      canvas.drawPath(
+        body,
+        Paint()
+          ..shader = ui.Gradient.linear(
+            const Offset(cx, headCenterY - headRadius),
+            const Offset(cx, tipY),
+            [light, dark],
+          ),
+      );
+
+      // Rim, so the pin keeps its shape against a busy basemap.
+      canvas.drawPath(
+        body,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = Colors.white.withValues(alpha: 0.85),
+      );
+
+      // Glossy highlight on the upper left.
+      canvas.save();
+      canvas.clipPath(body);
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: const Offset(
+            cx - headRadius * 0.3,
+            headCenterY - headRadius * 0.42,
+          ),
+          width: headRadius * 0.95,
+          height: headRadius * 0.55,
+        ),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.26)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      );
+      canvas.restore();
+
+      // White disc holding the photo or the kind's glyph.
+      const discRadius = headRadius * 0.66;
+      const discCenter = Offset(cx, headCenterY);
+      canvas.drawCircle(discCenter, discRadius, Paint()..color = Colors.white);
+
+      if (photo.isNotEmpty) {
+        final avatarImage = await _decodeImage(
+          base64Decode(photo),
+          targetWidth: (discRadius * 2).round(),
         );
-
         final avatarRect = Rect.fromCircle(
-          center: avatarCenter,
-          radius: avatarRadius,
+          center: discCenter,
+          radius: discRadius - 2,
         );
-
         canvas.save();
         canvas.clipPath(Path()..addOval(avatarRect));
         paintImage(
@@ -1667,25 +2562,67 @@ class CommercialMapController extends GetxController {
           fit: BoxFit.cover,
         );
         canvas.restore();
+      } else {
+        _paintMarkerGlyph(canvas, markerType, color, discCenter, discRadius);
       }
 
       final picture = recorder.endRecording();
-      final markerImage = await picture.toImage(
-        size.width.toInt(),
-        size.height.toInt(),
-      );
+      final markerImage = await picture.toImage(width.toInt(), height.toInt());
       final pngBytes = await markerImage.toByteData(
         format: ui.ImageByteFormat.png,
       );
+      markerImage.dispose();
+      picture.dispose();
 
       if (pngBytes == null) {
         return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
       }
 
-      return BitmapDescriptor.fromBytes(pngBytes.buffer.asUint8List());
+      final scale = selected ? _markerSelectedScale : 1.0;
+      final descriptor = BitmapDescriptor.bytes(
+        pngBytes.buffer.asUint8List(),
+        width: _markerDisplayWidth * scale,
+        height: _markerDisplayHeight * scale,
+      );
+      _markerIconCache[cacheKey] = descriptor;
+      return descriptor;
     } catch (_) {
       return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
     }
+  }
+
+  /// Material glyph for the kind, painted through the icon font.
+  void _paintMarkerGlyph(
+    Canvas canvas,
+    String markerType,
+    Color color,
+    Offset center,
+    double radius,
+  ) {
+    final icon = switch (markerType.toLowerCase()) {
+      // Nothing has been chosen yet, so the pin shows an invitation.
+      'pending' => Icons.add,
+      'prospect' => ClientPalette.icon(ClientKind.prospect),
+      'sous_client' || 'sub_client' => ClientPalette.icon(ClientKind.subClient),
+      _ => ClientPalette.icon(ClientKind.b2b),
+    };
+
+    final painter = TextPainter(textDirection: TextDirection.ltr)
+      ..text = TextSpan(
+        text: String.fromCharCode(icon.codePoint),
+        style: TextStyle(
+          fontSize: radius * 1.15,
+          fontFamily: icon.fontFamily,
+          package: icon.fontPackage,
+          color: color,
+        ),
+      )
+      ..layout();
+
+    painter.paint(
+      canvas,
+      center - Offset(painter.width / 2, painter.height / 2),
+    );
   }
 
   Future<ui.Image> _decodeImage(Uint8List bytes, {int? targetWidth}) async {

@@ -4,6 +4,8 @@ import '../data/services/map_service.dart';
 import '../data/services/fake_data_service.dart';
 import '../presentation/controllers/commercial_controller.dart';
 import '../presentation/controllers/map_controller.dart';
+import '../presentation/controllers/commercial_dashboard_controller.dart';
+import '../presentation/controllers/commercial_orders_controller.dart';
 import '../presentation/controllers/commercial_stock_controller.dart';
 
 /// Binding for commercial feature - initializes all dependencies
@@ -21,8 +23,21 @@ class CommercialBinding extends Bindings {
       fenix: true,
     );
     Get.lazyPut<MapController>(() => MapController(), fenix: true);
-    Get.lazyPut<CommercialStockController>(
-      () => CommercialStockController(),
+    // Not `fenix: true` like its neighbours: fenix disposes the controller
+    // when the route goes and builds a fresh one on next use, which is
+    // precisely what would throw away the loaded stock. This one is kept so
+    // that returning to the stock page shows the last load immediately;
+    // `clearCache()` on sign-out is what bounds its lifetime instead.
+    if (!Get.isRegistered<CommercialStockController>()) {
+      Get.put<CommercialStockController>(
+        CommercialStockController(),
+        permanent: true,
+      );
+    }
+    // The dashboard's figures come from the backend rather than from
+    // CommercialController's sample data, so they have their own controller.
+    Get.lazyPut<CommercialDashboardController>(
+      () => CommercialDashboardController(),
       fenix: true,
     );
   }
@@ -40,7 +55,12 @@ class InitialCommercialBinding extends Bindings {
     // Main controllers
     Get.put<CommercialController>(CommercialController(), permanent: true);
     Get.put<MapController>(MapController(), permanent: true);
-    Get.put<CommercialStockController>(CommercialStockController());
+    // Permanent for the same reason as above: the loaded stock has to outlive
+    // the page for the cache to mean anything.
+    Get.put<CommercialStockController>(
+      CommercialStockController(),
+      permanent: true,
+    );
   }
 }
 
@@ -76,6 +96,12 @@ class ProductsBinding extends Bindings {
 class OrdersBinding extends Bindings {
   @override
   void dependencies() {
-    // CommercialController should already be registered
+    // The orders page reads the live backend through its own controller, so
+    // unlike the pages still served by CommercialController it has something
+    // of its own to register.
+    Get.lazyPut<CommercialOrdersController>(
+      () => CommercialOrdersController(),
+      fenix: true,
+    );
   }
 }

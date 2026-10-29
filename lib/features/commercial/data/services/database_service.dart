@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/models.dart';
@@ -26,11 +29,15 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: _schemaVersion,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
   }
+
+  /// 2 added the queue's drain order and the document cache that lets the map
+  /// open without a connection.
+  static const int _schemaVersion = 2;
 
   Future<void> _onCreate(Database db, int version) async {
     // Clients table
@@ -164,9 +171,13 @@ class DatabaseService {
         createdAt TEXT NOT NULL,
         retryCount INTEGER DEFAULT 0,
         errorMessage TEXT,
-        status INTEGER DEFAULT 1
+        status INTEGER DEFAULT 1,
+        priority INTEGER DEFAULT 50,
+        lastAttemptAt TEXT
       )
     ''');
+
+    await _createDocumentCache(db);
 
     // Visit notes table
     await db.execute('''
@@ -200,10 +211,53 @@ class DatabaseService {
     await db.execute(
       'CREATE INDEX idx_sync_queue_status ON sync_queue (status)',
     );
+    await db.execute(
+      'CREATE INDEX idx_sync_queue_order ON sync_queue (priority, createdAt)',
+    );
+  }
+
+  /// Whole backend responses, kept as they came.
+  ///
+  /// Deliberately not a typed table per entity: what the map shows is the raw
+  /// JSON the API returned, with fields that no local model has, and a commercial
+  /// opening the app in a basement should see the same clients they saw an hour
+  /// ago rather than a thinner copy of them. One row per collection, replaced
+  /// whole on every successful load.
+  Future<void> _createDocumentCache(Database db) async {
+    await db.execute('''
+      CREATE TABLE cached_documents (
+        collection TEXT PRIMARY KEY,
+        documents TEXT NOT NULL,
+        fetchedAt TEXT NOT NULL
+      )
+    ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle database migrations here
+    if (oldVersion < 2) {
+      // The queue was FIFO and measured its backoff from when the user did the
+      // thing rather than from the last attempt; both are columns now.
+      await db.execute(
+        'ALTER TABLE sync_queue ADD COLUMN priority INTEGER DEFAULT 50',
+      );
+      await db.execute(
+        'ALTER TABLE sync_queue ADD COLUMN lastAttemptAt TEXT',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_sync_queue_order '
+        'ON sync_queue (priority, createdAt)',
+      );
+      await _createDocumentCache(db);
+
+      // Anything already queued was written with `Map.toString()` instead of
+      // JSON (see [addToSyncQueue]) and cannot be parsed back into a payload,
+      // so it could never have been sent. Dropping it is the only honest
+      // option: there is nothing recoverable in `{a: 1, b: null}`.
+      final dropped = await db.delete('sync_queue');
+      if (dropped > 0) {
+        debugPrint('Dropped $dropped queue items written in the old format.');
+      }
+    }
   }
 
   // ========== Client Operations ==========
@@ -480,13 +534,47 @@ class DatabaseService {
 
   // ========== Sync Queue Operations ==========
 
+  /// The payload as a row: JSON, not `Map.toString()`.
+  ///
+  /// It used to be written with `toString()`, which produces `{a: 1, b: null}`
+  /// — not parseable, not quoted, ambiguous about types, and impossible to read
+  /// back into a payload. Nothing queued could ever have been sent.
+  Map<String, dynamic> _toRow(SyncQueueItem item) {
+    final row = item.toJson();
+    row['data'] = jsonEncode(item.data);
+    return row;
+  }
+
+  SyncQueueItem _fromRow(Map<String, dynamic> row) {
+    final decoded = Map<String, dynamic>.from(row);
+    final raw = row['data'];
+
+    if (raw is String) {
+      try {
+        final parsed = jsonDecode(raw);
+        decoded['data'] = parsed is Map
+            ? Map<String, dynamic>.from(parsed)
+            : <String, dynamic>{};
+      } catch (error) {
+        // A row from before the format was fixed, or a truncated write.
+        debugPrint('Unreadable queue payload for ${row['id']}: $error');
+        decoded['data'] = <String, dynamic>{};
+      }
+    }
+
+    return SyncQueueItem.fromJson(decoded);
+  }
+
+  /// The order the queue is drained in: priority first, then the order the
+  /// user did things. That second part is what keeps a record's create ahead
+  /// of its own update.
+  static const String _queueOrder = 'priority ASC, createdAt ASC';
+
   Future<int> addToSyncQueue(SyncQueueItem item) async {
     final db = await database;
-    final json = item.toJson();
-    json['data'] = item.data.toString();
     return await db.insert(
       'sync_queue',
-      json,
+      _toRow(item),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -497,18 +585,70 @@ class DatabaseService {
       'sync_queue',
       where: 'status = ?',
       whereArgs: [SyncStatus.pending.index],
-      orderBy: 'createdAt ASC',
+      orderBy: _queueOrder,
     );
-    return List.generate(maps.length, (i) => SyncQueueItem.fromJson(maps[i]));
+    return List.generate(maps.length, (i) => _fromRow(maps[i]));
+  }
+
+  /// Everything still waiting, in drain order, whatever its status — what the
+  /// pending sheet lists, including the items that have given up retrying.
+  Future<List<SyncQueueItem>> getAllSyncItems() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'sync_queue',
+      orderBy: _queueOrder,
+    );
+    return List.generate(maps.length, (i) => _fromRow(maps[i]));
+  }
+
+  /// Points queued work at the id the backend gave a record.
+  ///
+  /// A record created offline is known locally as `local_…`; once its create
+  /// lands, the edits and the photo queued behind it have to be aimed at the
+  /// real id, or they would be sent against an id the backend has never seen.
+  Future<int> remapQueueEntity({
+    required String fromEntityId,
+    required String toEntityId,
+  }) async {
+    if (fromEntityId == toEntityId || fromEntityId.isEmpty) {
+      return 0;
+    }
+
+    final db = await database;
+    return await db.update(
+      'sync_queue',
+      {'entityId': toEntityId},
+      where: 'entityId = ?',
+      whereArgs: [fromEntityId],
+    );
+  }
+
+  /// Everything the sync service should attempt on this pass.
+  ///
+  /// This includes items that failed earlier but have retries left. Selecting
+  /// only `pending` — as [getPendingSyncItems] does — strands an item forever
+  /// the first time the network blips, because a failure moves it out of that
+  /// status and nothing ever moves it back.
+  Future<List<SyncQueueItem>> getSyncableItems({int maxRetries = 5}) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'sync_queue',
+      where: 'status = ? OR (status = ? AND retryCount < ?)',
+      whereArgs: [
+        SyncStatus.pending.index,
+        SyncStatus.failed.index,
+        maxRetries,
+      ],
+      orderBy: _queueOrder,
+    );
+    return List.generate(maps.length, (i) => _fromRow(maps[i]));
   }
 
   Future<int> updateSyncItem(SyncQueueItem item) async {
     final db = await database;
-    final json = item.toJson();
-    json['data'] = item.data.toString();
     return await db.update(
       'sync_queue',
-      json,
+      _toRow(item),
       where: 'id = ?',
       whereArgs: [item.id],
     );
@@ -560,6 +700,100 @@ class DatabaseService {
       totalFailed: failed,
       totalConflicts: conflicts,
     );
+  }
+
+  // ========== Document Cache ==========
+
+  /// Collections the map and its lists read.
+  static const String collectionMyClients = 'my_clients';
+  static const String collectionSubClients = 'sub_clients';
+
+  /// Keeps the last good answer for a collection.
+  ///
+  /// Called only after a load succeeds, so a failed request can never replace
+  /// good data with nothing.
+  Future<void> cacheDocuments(
+    String collection,
+    List<Map<String, dynamic>> documents,
+  ) async {
+    try {
+      final db = await database;
+      await db.insert('cached_documents', {
+        'collection': collection,
+        'documents': jsonEncode(documents),
+        'fetchedAt': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    } catch (error) {
+      // A cache that cannot be written is a missed optimisation, not a reason
+      // to fail the load that just succeeded.
+      debugPrint('Could not cache $collection: $error');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> readCachedDocuments(
+    String collection,
+  ) async {
+    try {
+      final db = await database;
+      final rows = await db.query(
+        'cached_documents',
+        where: 'collection = ?',
+        whereArgs: [collection],
+        limit: 1,
+      );
+
+      if (rows.isEmpty) {
+        return const [];
+      }
+
+      final decoded = jsonDecode(rows.first['documents'].toString());
+      if (decoded is! List) {
+        return const [];
+      }
+
+      return decoded
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    } catch (error) {
+      debugPrint('Could not read cached $collection: $error');
+      return const [];
+    }
+  }
+
+  /// When the collection was last pulled from the backend, so a screen can say
+  /// how old what it is showing is instead of implying it is current.
+  Future<DateTime?> cachedAt(String collection) async {
+    try {
+      final db = await database;
+      final rows = await db.query(
+        'cached_documents',
+        columns: ['fetchedAt'],
+        where: 'collection = ?',
+        whereArgs: [collection],
+        limit: 1,
+      );
+
+      if (rows.isEmpty) {
+        return null;
+      }
+
+      return DateTime.tryParse(rows.first['fetchedAt'].toString());
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /// Empties the cache on sign-out. The queue is deliberately left alone: it
+  /// holds work the user did that has not reached the backend yet, and
+  /// dropping it would silently throw away a client they registered.
+  Future<void> clearCachedDocuments() async {
+    try {
+      final db = await database;
+      await db.delete('cached_documents');
+    } catch (error) {
+      debugPrint('Could not clear the document cache: $error');
+    }
   }
 
   // ========== Utility Methods ==========

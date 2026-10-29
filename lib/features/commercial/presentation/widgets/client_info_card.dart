@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/models.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Client info card shown on map when client is selected
 class ClientInfoCard extends StatelessWidget {
@@ -26,15 +27,11 @@ class ClientInfoCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        // This card floats over the map, so it takes the panel colour and the
+        // lifted shadow rather than a page card's.
+        color: context.dayco.mapPanel,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
+        boxShadow: ColorManager.floatingShadow,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -57,7 +54,7 @@ class ClientInfoCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (client.category == ClientCategory.vip)
-                      const Icon(Icons.star, size: 14, color: Colors.amber),
+                      const Icon(Icons.star, size: 14, color: ColorManager.tertiaryColor),
                     const SizedBox(width: 4),
                     Text(
                       client.categoryLabel,
@@ -79,7 +76,7 @@ class ClientInfoCard extends StatelessWidget {
                   'Il y a ${client.daysSinceLastVisit} jours',
                   style: TextStyle(
                     fontSize: 11,
-                    color: client.needsVisit ? Colors.orange : Colors.grey[600],
+                    color: client.needsVisit ? context.dayco.warning : context.dayco.textSecondary,
                   ),
                 ),
 
@@ -110,11 +107,11 @@ class ClientInfoCard extends StatelessWidget {
           // Contact person
           Row(
             children: [
-              Icon(Icons.person_outline, size: 16, color: Colors.grey[500]),
+              Icon(Icons.person_outline, size: 16, color: context.dayco.textTertiary),
               const SizedBox(width: 4),
               Text(
                 client.contactPerson,
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 14, color: context.dayco.textSecondary),
               ),
             ],
           ),
@@ -126,13 +123,13 @@ class ClientInfoCard extends StatelessWidget {
               Icon(
                 Icons.location_on_outlined,
                 size: 16,
-                color: Colors.grey[500],
+                color: context.dayco.textTertiary,
               ),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
                   client.address,
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 13, color: context.dayco.textSecondary),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -157,7 +154,7 @@ class ClientInfoCard extends StatelessWidget {
                     children: [
                       Text(
                         'Crédit en cours',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 11, color: context.dayco.textSecondary),
                       ),
                       Text(
                         '${client.currentCredit.toStringAsFixed(0)} TND',
@@ -165,21 +162,21 @@ class ClientInfoCard extends StatelessWidget {
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: client.currentCredit > client.creditLimit * 0.8
-                              ? Colors.red
+                              ? context.dayco.danger
                               : ColorManager.textPrimary,
                         ),
                       ),
                     ],
                   ),
                 ),
-                Container(width: 1, height: 30, color: Colors.grey[300]),
+                Container(width: 1, height: 30, color: context.dayco.border),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
                         'Limite crédit',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 11, color: context.dayco.textSecondary),
                       ),
                       Text(
                         '${client.creditLimit.toStringAsFixed(0)} TND',
@@ -233,7 +230,7 @@ class ClientInfoCard extends StatelessWidget {
                   child: _ActionButton(
                     icon: Icons.navigation,
                     label: 'Y aller',
-                    color: Colors.orange,
+                    color: context.dayco.warning,
                     onTap: onNavigate!,
                   ),
                 ),

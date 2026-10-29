@@ -6,6 +6,8 @@ import '../../../../core/services/language_service.dart';
 import '../../../../core/shared/widget/buttons/custom_elevated_button.dart';
 import '../../../../core/shared/widget/text/custom_text.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/theme/app_gradients.dart';
+import '../../../../core/theme/dayco_colors.dart';
 import '../../../../localization/ui_translations.dart';
 import '../controllers/auth_controller.dart';
 
@@ -51,7 +53,8 @@ class LoginPage extends StatelessWidget {
               // with large logo-coloured shapes behind the content.
               Positioned.fill(
                 child: DecoratedBox(
-                  decoration: BoxDecoration(gradient: _pageGradient),
+                  decoration:
+                      BoxDecoration(gradient: context.dayco.pageGradient),
                   child: const CustomPaint(
                     painter: _BackdropPainter(
                       color: ColorManager.primaryColor,
@@ -154,11 +157,9 @@ class LoginPage extends StatelessWidget {
 
     return DecoratedBox(
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [ColorManager.primaryColor, ColorManager.primaryVariant],
-        ),
+        // The pair this panel used to spell out is the house gradient; it now
+        // comes from the one definition, so a change there reaches the panel.
+        gradient: AppGradients.brandWide,
         borderRadius: radius,
         boxShadow: [
           BoxShadow(
@@ -505,16 +506,6 @@ class LoginPage extends StatelessWidget {
     );
   }
 
-  LinearGradient get _pageGradient => LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [
-      ColorManager.backgroundColor,
-      Color.lerp(ColorManager.primaryColor, ColorManager.white, 0.92)!,
-      Color.lerp(ColorManager.primaryColor, ColorManager.white, 0.82)!,
-    ],
-    stops: const [0, 0.55, 1],
-  );
 }
 
 /// Draws the large soft shapes that sit behind the login content.

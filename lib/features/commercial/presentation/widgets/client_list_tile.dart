@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/models.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Client list tile widget
 class ClientListTile extends StatelessWidget {
@@ -27,7 +28,7 @@ class ClientListTile extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: context.dayco.card,
             borderRadius: BorderRadius.circular(12),
             boxShadow: ColorManager.lightCardShadow,
           ),
@@ -74,13 +75,13 @@ class ClientListTile extends StatelessWidget {
                           ),
                         ),
                         if (client.category == ClientCategory.vip)
-                          const Icon(Icons.star, size: 16, color: Colors.amber),
+                          const Icon(Icons.star, size: 16, color: ColorManager.tertiaryColor),
                       ],
                     ),
                     const SizedBox(height: 2),
                     Text(
                       client.contactPerson,
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 13, color: context.dayco.textSecondary),
                     ),
                     const SizedBox(height: 4),
                     Row(
@@ -88,7 +89,7 @@ class ClientListTile extends StatelessWidget {
                         Icon(
                           Icons.location_on_outlined,
                           size: 14,
-                          color: Colors.grey[500],
+                          color: context.dayco.textTertiary,
                         ),
                         const SizedBox(width: 4),
                         Expanded(
@@ -96,7 +97,7 @@ class ClientListTile extends StatelessWidget {
                             client.address,
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.grey[500],
+                              color: context.dayco.textTertiary,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -115,7 +116,7 @@ class ClientListTile extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: client.needsVisit
-                                ? Colors.orange.withOpacity(0.1)
+                                ? context.dayco.warning.withOpacity(0.1)
                                 : ColorManager.secondaryVariant.withOpacity(
                                     0.1,
                                   ),
@@ -129,7 +130,7 @@ class ClientListTile extends StatelessWidget {
                               fontSize: 10,
                               fontWeight: FontWeight.w500,
                               color: client.needsVisit
-                                  ? Colors.orange
+                                  ? context.dayco.warning
                                   : ColorManager.secondaryVariant,
                             ),
                           ),
@@ -149,7 +150,7 @@ class ClientListTile extends StatelessWidget {
                             client.paymentTermsLabel,
                             style: TextStyle(
                               fontSize: 10,
-                              color: Colors.grey[600],
+                              color: context.dayco.textSecondary,
                             ),
                           ),
                         ),
@@ -175,7 +176,7 @@ class ClientListTile extends StatelessWidget {
                   if (onNavigate != null)
                     IconButton(
                       icon: const Icon(Icons.navigation, size: 20),
-                      color: Colors.orange,
+                      color: context.dayco.warning,
                       onPressed: onNavigate,
                       constraints: const BoxConstraints(
                         minWidth: 36,

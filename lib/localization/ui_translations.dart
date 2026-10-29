@@ -54,6 +54,12 @@ class UiTranslations {
           'Parent Client ID requis pour le sous-client',
       'success': 'Succès',
       'clientCreated': 'Client créé avec succès',
+      'savedOffline': 'Enregistré hors ligne',
+      'savedOfflineMessage':
+          "Sauvegardé sur l'appareil. L'envoi se fera automatiquement "
+              'dès le retour du réseau.',
+      'pendingSync': "En attente d'envoi",
+      'offlineData': 'Données hors ligne',
       'newLocation': 'Nouvelle localisation',
       'activeSelection': 'Sélection active pour enregistrement',
       'subClientLabel': 'Sous-client',
@@ -143,6 +149,11 @@ class UiTranslations {
       'parentClientIdSubRequired': 'معرّف العميل الرئيسي مطلوب للعميل الفرعي',
       'success': 'نجاح',
       'clientCreated': 'تم إنشاء العميل بنجاح',
+      'savedOffline': 'تم الحفظ دون اتصال',
+      'savedOfflineMessage':
+          'تم الحفظ على الجهاز. سيتم الإرسال تلقائياً عند عودة الشبكة.',
+      'pendingSync': 'في انتظار الإرسال',
+      'offlineData': 'بيانات دون اتصال',
       'newLocation': 'موقع جديد',
       'activeSelection': 'موقع محدد للتسجيل',
       'subClientLabel': 'عميل فرعي',
@@ -233,6 +244,12 @@ class UiTranslations {
           'Parent Client ID is required for Sous-client',
       'success': 'Success',
       'clientCreated': 'Client created successfully',
+      'savedOffline': 'Saved offline',
+      'savedOfflineMessage':
+          'Saved on this device. It will be sent automatically as soon as '
+              'the network is back.',
+      'pendingSync': 'Waiting to be sent',
+      'offlineData': 'Offline data',
       'newLocation': 'New location',
       'activeSelection': 'Active selection for registration',
       'subClientLabel': 'Sous-client',

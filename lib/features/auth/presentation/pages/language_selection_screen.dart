@@ -3,6 +3,7 @@ import 'package:gap/gap.dart';
 import 'package:get/get.dart';
 
 import '../../../../core/services/language_service.dart';
+import '../../../../core/shared/widget/app_bar/dayco_app_bar.dart';
 import '../../../../core/shared/widget/buttons/custom_elevated_button.dart';
 import '../../../../core/shared/widget/text/custom_text.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -33,16 +34,9 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: ColorManager.backgroundColor,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: ColorManager.backgroundColor,
+      appBar: DaycoAppBar(
+        titleText: _getLocalizedText('selectLanguage'),
         centerTitle: true,
-        title: customText(
-          text: _getLocalizedText('selectLanguage'),
-          textStyle: AppTextStyles.appBarTitle.copyWith(
-            color: ColorManager.textPrimary,
-          ),
-        ),
         automaticallyImplyLeading: false,
       ),
       body: SafeArea(

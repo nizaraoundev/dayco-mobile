@@ -1,4 +1,4 @@
-import 'package:dayco_mobile/core/theme/animation_config.dart';
+import 'package:dayco_mobile/core/theme/app_theme.dart';
 import 'package:dayco_mobile/localization/app_localizations.dart';
 import 'package:dayco_mobile/routes/app_pages.dart';
 import 'package:dayco_mobile/routes/app_routes.dart';
@@ -32,9 +32,19 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // `top: false` so a page's own app bar paints behind the status bar, which
+    // is what the brand-coloured app bar and its transparent-status-bar overlay
+    // style both assume. Every page already wraps what it needs in its own
+    // SafeArea; the root one is here for the bottom inset.
     return SafeArea(
+      top: false,
       child: GetMaterialApp(
-        darkTheme: ThemeData.dark(),
+        theme: ColorManager.lightTheme,
+        darkTheme: ColorManager.darkTheme,
+        // Unchanged behaviour: with a dark theme supplied and no mode set,
+        // GetMaterialApp already followed the system. The difference is that
+        // the dark theme is now the app's own rather than Flutter's.
+        themeMode: ThemeMode.system,
         locale: _getLocale(),
         localizationsDelegates: const [
           S.delegate,
@@ -44,21 +54,6 @@ class MyApp extends StatelessWidget {
         ],
         supportedLocales: S.supportedLocales,
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          pageTransitionsTheme: AppAnimationConfig.pageTransitionsTheme,
-          // Material 3 caps modal sheets at 640px wide, which leaves them
-          // floating in the middle of a tablet. Sheets here are full-bleed.
-          bottomSheetTheme: const BottomSheetThemeData(
-            constraints: BoxConstraints(),
-          ),
-          // Enhanced visual feedback for interactions
-          splashFactory: InkRipple.splashFactory,
-          highlightColor: Colors.transparent,
-          splashColor: Colors.black.withOpacity(0.1),
-          // Smooth curves for all animations
-          platform: TargetPlatform.android,
-        ),
         initialRoute: AppRoutes.splash,
         getPages: AppPages.routes,
         builder: (context, child) {

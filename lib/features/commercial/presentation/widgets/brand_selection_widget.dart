@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/models.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Widget for selecting car brands for a client's boutique
 class BrandSelectionWidget extends StatefulWidget {
@@ -57,7 +58,7 @@ class _BrandSelectionWidgetState extends State<BrandSelectionWidget> {
                   'Sélectionnez les marques que vous commercialisez',
                   style: Theme.of(
                     context,
-                  ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                  ).textTheme.bodySmall?.copyWith(color: context.dayco.textSecondary),
                 ),
               ],
             ),
@@ -100,7 +101,7 @@ class _BrandSelectionWidgetState extends State<BrandSelectionWidget> {
                               ),
                               child: Text(
                                 '$selectedCount/${brands.length}',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 12,
                                   color: ColorManager.primaryColor,
                                   fontWeight: FontWeight.bold,
@@ -128,13 +129,13 @@ class _BrandSelectionWidgetState extends State<BrandSelectionWidget> {
                               });
                               widget.onBrandsChanged(_selectedBrands);
                             },
-                            backgroundColor: Colors.white,
+                            backgroundColor: context.dayco.chipFill,
                             selectedColor: ColorManager.primaryColor
                                 .withOpacity(0.3),
                             side: BorderSide(
                               color: isSelected
                                   ? ColorManager.primaryColor
-                                  : Colors.grey[300]!,
+                                  : context.dayco.border,
                             ),
                             checkmarkColor: ColorManager.primaryColor,
                           );
@@ -204,15 +205,15 @@ class BrandDisplayWidget extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.grey[100],
+          color: context.dayco.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey[300]!),
+          border: Border.all(color: context.dayco.border),
         ),
         child: Center(
           child: Text(
             'Aucune marque sélectionnée',
             style: TextStyle(
-              color: Colors.grey[600],
+              color: context.dayco.textSecondary,
               fontStyle: FontStyle.italic,
             ),
           ),
@@ -251,7 +252,7 @@ class BrandDisplayWidget extends StatelessWidget {
                       style: const TextStyle(fontSize: 12),
                     ),
                     backgroundColor: ColorManager.primaryColor.withOpacity(0.1),
-                    labelStyle: TextStyle(
+                    labelStyle: const TextStyle(
                       color: ColorManager.primaryColor,
                       fontWeight: FontWeight.w500,
                     ),

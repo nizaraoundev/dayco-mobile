@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/models.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Route info panel shown when navigating
 class RouteInfoPanel extends StatelessWidget {
@@ -32,15 +33,10 @@ class RouteInfoPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        // Floats over the map, like the client card beside it.
+        color: context.dayco.mapPanel,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
+        boxShadow: ColorManager.floatingShadow,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -76,7 +72,7 @@ class RouteInfoPanel extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       '${route.waypoints.length} étapes • ${route.formattedDistance} • ${route.formattedDuration}',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 13, color: context.dayco.textSecondary),
                     ),
                   ],
                 ),
@@ -107,7 +103,7 @@ class RouteInfoPanel extends StatelessWidget {
                       Container(
                         width: 28,
                         height: 28,
-                        decoration: BoxDecoration(
+                        decoration: const BoxDecoration(
                           color: ColorManager.primaryColor,
                           shape: BoxShape.circle,
                         ),
@@ -139,7 +135,7 @@ class RouteInfoPanel extends StatelessWidget {
                                 'ETA: ${currentWaypoint!.eta}',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey[600],
+                                  color: context.dayco.textSecondary,
                                 ),
                               ),
                           ],
@@ -166,7 +162,7 @@ class RouteInfoPanel extends StatelessWidget {
                                 ),
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey[600],
+                                  color: context.dayco.textSecondary,
                                 ),
                               ),
                           ],
@@ -191,7 +187,7 @@ class RouteInfoPanel extends StatelessWidget {
                       side: BorderSide(
                         color: currentIndex > 0
                             ? ColorManager.primaryColor
-                            : Colors.grey[300]!,
+                            : context.dayco.border,
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
@@ -208,8 +204,8 @@ class RouteInfoPanel extends StatelessWidget {
                 IconButton(
                   onPressed: onStopNavigation,
                   style: IconButton.styleFrom(
-                    backgroundColor: Colors.red[50],
-                    foregroundColor: Colors.red,
+                    backgroundColor: context.dayco.dangerSurface,
+                    foregroundColor: context.dayco.danger,
                     padding: const EdgeInsets.all(12),
                   ),
                   icon: const Icon(Icons.stop),
@@ -224,7 +220,7 @@ class RouteInfoPanel extends StatelessWidget {
                         : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: ColorManager.primaryColor,
-                      disabledBackgroundColor: Colors.grey[300],
+                      disabledBackgroundColor: context.dayco.border,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
@@ -269,7 +265,7 @@ class RouteInfoPanel extends StatelessWidget {
                             : waypoint.clientName,
                         style: const TextStyle(fontSize: 12),
                       ),
-                      backgroundColor: Colors.grey[100],
+                      backgroundColor: context.dayco.surface,
                     ),
                   );
                 },

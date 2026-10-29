@@ -57,18 +57,16 @@ class SyncIndicator extends StatelessWidget {
   }
 
   Color _getBackgroundColor() {
-    if (!isOnline) return Colors.grey;
+    if (!isOnline) return ColorManager.neutralGray;
     if (isSyncing) return ColorManager.primaryColor;
-    if (pendingCount > 0) return Colors.orange;
-    return ColorManager.secondaryVariant;
+    if (pendingCount > 0) return ColorManager.warningColor;
+    return ColorManager.successColor;
   }
 
-  Color _getIconColor() {
-    if (!isOnline) return Colors.white;
-    if (isSyncing) return Colors.white;
-    if (pendingCount > 0) return Colors.white;
-    return Colors.white;
-  }
+  /// White in every state: this sits in the brand-coloured app bar, and the
+  /// tinted pill behind it is only a 20% wash of the status colour, so white is
+  /// the one foreground that stays legible across all four.
+  Color _getIconColor() => ColorManager.white;
 
   IconData _getIcon() {
     if (!isOnline) return Icons.cloud_off;

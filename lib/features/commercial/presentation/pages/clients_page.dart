@@ -5,6 +5,8 @@ import '../controllers/commercial_controller.dart';
 import '../widgets/client_list_tile.dart';
 import 'client_detail_page.dart';
 import 'map_page.dart';
+import '../../../../core/theme/dayco_colors.dart';
+import '../../../../core/shared/widget/app_bar/dayco_app_bar.dart';
 
 /// Clients list page
 class ClientsPage extends StatelessWidget {
@@ -17,10 +19,8 @@ class ClientsPage extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: ColorManager.backgroundColor,
-      appBar: AppBar(
-        title: const Text('Mes Clients B2B'),
-        backgroundColor: ColorManager.primaryColor,
-        foregroundColor: Colors.white,
+      appBar: DaycoAppBar(
+        titleText: 'Mes Clients B2B',
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),
@@ -36,7 +36,7 @@ class ClientsPage extends StatelessWidget {
         children: [
           // Search bar
           Container(
-            color: Colors.white,
+            color: context.dayco.card,
             padding: const EdgeInsets.all(16),
             child: TextField(
               controller: searchController,
@@ -72,7 +72,7 @@ class ClientsPage extends StatelessWidget {
 
           // Stats summary
           Container(
-            color: Colors.white,
+            color: context.dayco.card,
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: Obx(
               () => Row(
@@ -86,13 +86,13 @@ class ClientsPage extends StatelessWidget {
                   _StatBadge(
                     label: 'VIP',
                     count: controller.vipClients.length,
-                    color: Colors.amber,
+                    color: ColorManager.tertiaryColor,
                   ),
                   const SizedBox(width: 8),
                   _StatBadge(
                     label: 'À visiter',
                     count: controller.clientsNeedingVisit.length,
-                    color: Colors.orange,
+                    color: context.dayco.warning,
                   ),
                 ],
               ),
@@ -109,11 +109,11 @@ class ClientsPage extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+                      Icon(Icons.search_off, size: 64, color: context.dayco.textTertiary),
                       const SizedBox(height: 16),
                       Text(
                         'Aucun client trouvé',
-                        style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 16, color: context.dayco.textSecondary),
                       ),
                     ],
                   ),
@@ -158,9 +158,9 @@ class ClientsPage extends StatelessWidget {
     Get.bottomSheet(
       Container(
         padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: context.dayco.sheet,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

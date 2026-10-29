@@ -1,15 +1,37 @@
 import 'package:flutter/material.dart';
 
-/// Text styles used throughout the Neos mobility app
+/// Text styles used throughout the app.
 class AppTextStyles {
   AppTextStyles._();
 
-  // Base font family
-  static const String _fontFamily = 'Inter';
+  /// The font everything is set in by default.
+  ///
+  /// This used to say `Inter`, which the app does not ship and never has:
+  /// `pubspec.yaml` bundles Roboto, Montserrat, Cairo and Tajawal. Flutter
+  /// silently fell back to the platform font for every style in this file, so
+  /// none of the bundled weights were ever used and the app looked different
+  /// on each Android skin. Naming a family that is actually declared fixes
+  /// both.
+  static const String bodyFont = 'Roboto';
+
+  /// Headings are set in the brand's display font.
+  ///
+  /// Montserrat is geometric and wide — right for a screen title, wrong for a
+  /// 12sp quantity in a table, which is why it stops at [titleLarge].
+  static const String titleFont = 'Montserrat';
+
+  /// Arabic has no coverage in Roboto's bundled subset or in Montserrat, so
+  /// the Arabic faces take over for Arabic runs. Without this, every Arabic
+  /// string renders as boxes with the rest of the style intact, which is
+  /// harder to spot than an outright failure.
+  static const List<String> fallbackFonts = ['Cairo', 'Tajawal'];
+
+  // Kept for the styles below, which were all written against this name.
+  static const String _fontFamily = bodyFont;
 
   // Display styles - for hero text and large headings
   static const TextStyle displayLarge = TextStyle(
-    fontFamily: _fontFamily,
+    fontFamily: titleFont,
     fontSize: 32,
     fontWeight: FontWeight.w700,
     height: 1.2,
@@ -17,7 +39,7 @@ class AppTextStyles {
   );
 
   static const TextStyle displayMedium = TextStyle(
-    fontFamily: _fontFamily,
+    fontFamily: titleFont,
     fontSize: 28,
     fontWeight: FontWeight.w600,
     height: 1.25,
@@ -25,7 +47,7 @@ class AppTextStyles {
   );
 
   static const TextStyle displaySmall = TextStyle(
-    fontFamily: _fontFamily,
+    fontFamily: titleFont,
     fontSize: 24,
     fontWeight: FontWeight.w600,
     height: 1.3,
@@ -34,7 +56,7 @@ class AppTextStyles {
 
   // Headline styles - for section titles
   static const TextStyle headlineLarge = TextStyle(
-    fontFamily: _fontFamily,
+    fontFamily: titleFont,
     fontSize: 22,
     fontWeight: FontWeight.w600,
     height: 1.35,
@@ -42,7 +64,7 @@ class AppTextStyles {
   );
 
   static const TextStyle headlineMedium = TextStyle(
-    fontFamily: _fontFamily,
+    fontFamily: titleFont,
     fontSize: 20,
     fontWeight: FontWeight.w600,
     height: 1.4,
@@ -50,7 +72,7 @@ class AppTextStyles {
   );
 
   static const TextStyle headlineSmall = TextStyle(
-    fontFamily: _fontFamily,
+    fontFamily: titleFont,
     fontSize: 18,
     fontWeight: FontWeight.w600,
     height: 1.45,
@@ -214,7 +236,7 @@ class AppTextStyles {
   );
 
   static const TextStyle appBarTitle = TextStyle(
-    fontFamily: _fontFamily,
+    fontFamily: titleFont,
     fontSize: 18,
     fontWeight: FontWeight.w600,
     height: 1.3,

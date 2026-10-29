@@ -40,6 +40,9 @@ dependencies:
   dio: ^5.4.0
   http: ^1.2.0
   image_picker: ^1.0.7
+  url_launcher: ^6.3.1
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.9.4
   camera: ^0.11.0+2
   geolocator: ^14.0.2
   flutter_speed_dial: ^7.0.0
@@ -95,49 +98,127 @@ flutter:
     - assets/json/map_sombre.json
     - assets/images/picker.png
 
+  # Each face is declared with its own weight and style. They all used to sit
+  # under one family with no attributes, which registers every file as a plain
+  # regular: Flutter then had no bold to reach for and synthesised or ignored
+  # one, so `FontWeight.w600` on a heading came out looking like body text.
   fonts:
     - family: Roboto
       fonts:
-        - asset: assets/fonts/Roboto/Roboto-Black.ttf
-        - asset: assets/fonts/Roboto/Roboto-BlackItalic.ttf
-        - asset: assets/fonts/Roboto/Roboto-Regular.ttf
-        - asset: assets/fonts/Roboto/Roboto-Bold.ttf
-        - asset: assets/fonts/Roboto/Roboto-Italic.ttf
-        - asset: assets/fonts/Roboto/Roboto-BoldItalic.ttf
-        - asset: assets/fonts/Roboto/Roboto-Light.ttf
-        - asset: assets/fonts/Roboto/Roboto-LightItalic.ttf
-        - asset: assets/fonts/Roboto/Roboto-Medium.ttf
-        - asset: assets/fonts/Roboto/Roboto-MediumItalic.ttf
         - asset: assets/fonts/Roboto/Roboto-Thin.ttf
+          weight: 100
         - asset: assets/fonts/Roboto/Roboto-ThinItalic.ttf
+          weight: 100
+          style: italic
+        - asset: assets/fonts/Roboto/Roboto-Light.ttf
+          weight: 300
+        - asset: assets/fonts/Roboto/Roboto-LightItalic.ttf
+          weight: 300
+          style: italic
+        - asset: assets/fonts/Roboto/Roboto-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Roboto/Roboto-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: assets/fonts/Roboto/Roboto-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Roboto/Roboto-MediumItalic.ttf
+          weight: 500
+          style: italic
+        - asset: assets/fonts/Roboto/Roboto-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Roboto/Roboto-BoldItalic.ttf
+          weight: 700
+          style: italic
+        - asset: assets/fonts/Roboto/Roboto-Black.ttf
+          weight: 900
+        - asset: assets/fonts/Roboto/Roboto-BlackItalic.ttf
+          weight: 900
+          style: italic
     - family: Montserrat
       fonts:
-        - asset: assets/fonts/Montserrat/Montserrat-Black.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-BlackItalic.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-Bold.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-BoldItalic.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-ExtraBold.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-ExtraBoldItalic.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-ExtraLight.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-ExtraLightItalic.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-Italic.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-Light.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-LightItalic.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-Medium.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-MediumItalic.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-Regular.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-SemiBold.ttf
-        - asset: assets/fonts/Montserrat/Montserrat-SemiBoldItalic.ttf
         - asset: assets/fonts/Montserrat/Montserrat-Thin.ttf
+          weight: 100
+        - asset: assets/fonts/Montserrat/Montserrat-ThinItalic.ttf
+          weight: 100
+          style: italic
+        - asset: assets/fonts/Montserrat/Montserrat-ExtraLight.ttf
+          weight: 200
+        - asset: assets/fonts/Montserrat/Montserrat-ExtraLightItalic.ttf
+          weight: 200
+          style: italic
+        - asset: assets/fonts/Montserrat/Montserrat-Light.ttf
+          weight: 300
+        - asset: assets/fonts/Montserrat/Montserrat-LightItalic.ttf
+          weight: 300
+          style: italic
+        - asset: assets/fonts/Montserrat/Montserrat-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Montserrat/Montserrat-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: assets/fonts/Montserrat/Montserrat-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Montserrat/Montserrat-MediumItalic.ttf
+          weight: 500
+          style: italic
+        - asset: assets/fonts/Montserrat/Montserrat-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Montserrat/Montserrat-SemiBoldItalic.ttf
+          weight: 600
+          style: italic
+        - asset: assets/fonts/Montserrat/Montserrat-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Montserrat/Montserrat-BoldItalic.ttf
+          weight: 700
+          style: italic
+        - asset: assets/fonts/Montserrat/Montserrat-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/Montserrat/Montserrat-ExtraBoldItalic.ttf
+          weight: 800
+          style: italic
+        - asset: assets/fonts/Montserrat/Montserrat-Black.ttf
+          weight: 900
+        - asset: assets/fonts/Montserrat/Montserrat-BlackItalic.ttf
+          weight: 900
+          style: italic
+    # The two Arabic faces. They are the fallback for Arabic text in every
+    # style, so they need their weights declared like the Latin ones.
     - family: Cairo
       fonts:
+        - asset: assets/fonts/Tajwal/Cairo/static/Cairo-ExtraLight.ttf
+          weight: 200
+        - asset: assets/fonts/Tajwal/Cairo/static/Cairo-Light.ttf
+          weight: 300
         - asset: assets/fonts/Tajwal/Cairo/static/Cairo-Regular.ttf
-    - family: Tajwal/Tajawal
+          weight: 400
+        - asset: assets/fonts/Tajwal/Cairo/static/Cairo-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Tajwal/Cairo/static/Cairo-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Tajwal/Cairo/static/Cairo-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Tajwal/Cairo/static/Cairo-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/Tajwal/Cairo/static/Cairo-Black.ttf
+          weight: 900
+    # Declared as "Tajwal/Tajawal" before, a name no code could plausibly ask
+    # for and none did.
+    - family: Tajawal
       fonts:
-        - asset: assets/fonts/Tajwal/Tajawal-Regular.ttf
-        - asset: assets/fonts/Tajwal/Tajawal-Bold.ttf
-        - asset: assets/fonts/Tajwal/Tajawal-ExtraBold.ttf
+        - asset: assets/fonts/Tajwal/Tajawal-ExtraLight.ttf
+          weight: 200
         - asset: assets/fonts/Tajwal/Tajawal-Light.ttf
+          weight: 300
+        - asset: assets/fonts/Tajwal/Tajawal-Regular.ttf
+          weight: 400
         - asset: assets/fonts/Tajwal/Tajawal-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Tajwal/Tajawal-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Tajwal/Tajawal-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/Tajwal/Tajawal-Black.ttf
+          weight: 900
 flutter_intl:
   enabled: true

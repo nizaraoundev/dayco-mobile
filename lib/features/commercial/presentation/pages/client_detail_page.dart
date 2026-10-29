@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/shared/widget/app_bar/dayco_app_bar.dart';
+import '../../../../core/theme/app_gradients.dart';
 import '../../data/models/models.dart';
 import '../controllers/commercial_controller.dart';
 import '../widgets/brand_selection_widget.dart';
 import 'map_page.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Client detail page
 class ClientDetailPage extends StatelessWidget {
@@ -21,11 +24,13 @@ class ClientDetailPage extends StatelessWidget {
       body: CustomScrollView(
         slivers: [
           // App Bar
-          SliverAppBar(
+          DaycoSliverAppBar(
             expandedHeight: 200,
             pinned: true,
-            backgroundColor: client.categoryColor,
-            flexibleSpace: FlexibleSpaceBar(
+            // Keeps the client's own category colour, but shaped by the same
+            // formula as every other bar in the app.
+            gradient: AppGradients.fromColor(client.categoryColor),
+            flexibleContent: FlexibleSpaceBar(
               title: Text(
                 client.businessName,
                 style: const TextStyle(
@@ -33,18 +38,7 @@ class ClientDetailPage extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      client.categoryColor,
-                      client.categoryColor.withOpacity(0.7),
-                    ],
-                  ),
-                ),
-                child: Center(
+              background: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -105,7 +99,6 @@ class ClientDetailPage extends StatelessWidget {
                     ],
                   ),
                 ),
-              ),
             ),
             actions: [
               IconButton(icon: const Icon(Icons.edit), onPressed: () {}),
@@ -140,7 +133,7 @@ class ClientDetailPage extends StatelessWidget {
                     child: _ActionButton(
                       icon: Icons.navigation,
                       label: 'Y aller',
-                      color: Colors.orange,
+                      color: context.dayco.warning,
                       onTap: () => Get.to(() => MapPage(initialClient: client)),
                     ),
                   ),
@@ -194,7 +187,7 @@ class ClientDetailPage extends StatelessWidget {
                   label: 'Crédit en cours',
                   value: '${client.currentCredit.toStringAsFixed(0)} TND',
                   valueColor: client.currentCredit > client.creditLimit * 0.8
-                      ? Colors.red
+                      ? context.dayco.danger
                       : null,
                 ),
                 _InfoRow(
@@ -217,7 +210,7 @@ class ClientDetailPage extends StatelessWidget {
                   value: client.lastVisitDate != null
                       ? 'Il y a ${client.daysSinceLastVisit} jours'
                       : 'Jamais visité',
-                  valueColor: client.needsVisit ? Colors.orange : null,
+                  valueColor: client.needsVisit ? context.dayco.warning : null,
                 ),
                 _InfoRow(
                   icon: Icons.repeat,
@@ -235,7 +228,7 @@ class ClientDetailPage extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: context.dayco.card,
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: ColorManager.lightCardShadow,
                 ),
@@ -266,12 +259,16 @@ class ClientDetailPage extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    BrandDisplayWidget(
-                      brands: client.availableBrands,
-                      onEdit: () => _showBrandSelectionDialog(
-                        context,
-                        client,
-                        controller,
+                    // Reads the live client so an edit shows up straight
+                    // away: this page holds an immutable snapshot.
+                    Obx(
+                      () => BrandDisplayWidget(
+                        brands: _currentClient(controller).availableBrands,
+                        onEdit: () => _showBrandSelectionDialog(
+                          context,
+                          client,
+                          controller,
+                        ),
                       ),
                     ),
                   ],
@@ -295,7 +292,7 @@ class ClientDetailPage extends StatelessWidget {
                     ),
                     child: Text(
                       client.notes!,
-                      style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 14, color: context.dayco.textSecondary),
                     ),
                   ),
                 ],
@@ -330,7 +327,7 @@ class ClientDetailPage extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: context.dayco.card,
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: ColorManager.lightCardShadow,
                     ),
@@ -340,12 +337,12 @@ class ClientDetailPage extends StatelessWidget {
                           Icon(
                             Icons.receipt_long_outlined,
                             size: 48,
-                            color: Colors.grey[400],
+                            color: context.dayco.textTertiary,
                           ),
                           const SizedBox(height: 8),
                           Text(
                             'Aucune commande récente',
-                            style: TextStyle(color: Colors.grey[600]),
+                            style: TextStyle(color: context.dayco.textSecondary),
                           ),
                         ],
                       ),
@@ -383,7 +380,7 @@ class ClientDetailPage extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: context.dayco.card,
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: ColorManager.lightCardShadow,
                     ),
@@ -393,12 +390,12 @@ class ClientDetailPage extends StatelessWidget {
                           Icon(
                             Icons.history,
                             size: 48,
-                            color: Colors.grey[400],
+                            color: context.dayco.textTertiary,
                           ),
                           const SizedBox(height: 8),
                           Text(
                             'Aucun historique',
-                            style: TextStyle(color: Colors.grey[600]),
+                            style: TextStyle(color: context.dayco.textSecondary),
                           ),
                         ],
                       ),
@@ -446,43 +443,51 @@ class ClientDetailPage extends StatelessWidget {
     );
   }
 
+  /// The controller's copy of this client, which is the one that gets updated.
+  ///
+  /// The page is handed an immutable [ClientModel] when it is pushed, so
+  /// anything that edits the client has to read back through the controller.
+  ClientModel _currentClient(CommercialController controller) {
+    for (final candidate in controller.clients) {
+      if (candidate.id == client.id) return candidate;
+    }
+    return client;
+  }
+
   /// Show brand selection dialog
-  void _showBrandSelectionDialog(
+  ///
+  /// The selection is saved once, when the sheet closes. `onBrandsChanged`
+  /// fires on every chip tap, so saving there would mean a database write and
+  /// a sync enqueue per tap.
+  Future<void> _showBrandSelectionDialog(
     BuildContext context,
     ClientModel client,
     CommercialController controller,
-  ) {
-    Get.bottomSheet(
+  ) async {
+    CarBrandsModel? pendingBrands;
+
+    await Get.bottomSheet(
       SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Container(
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: context.dayco.card,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Stack(
               children: [
                 BrandSelectionWidget(
-                  initialBrands: client.availableBrands,
-                  onBrandsChanged: (brands) {
-                    // Update the client with new brands
-                    final updatedClient = client.copyWith(
-                      availableBrands: brands,
-                      updatedAt: DateTime.now(),
-                      syncStatus: 'pending',
-                    );
-                    // TODO: Save this updated client to the database
-                    // For now, just update in memory
-                  },
+                  initialBrands: _currentClient(controller).availableBrands,
+                  onBrandsChanged: (brands) => pendingBrands = brands,
                   isEditing: true,
                 ),
                 Positioned(
                   top: 8,
                   right: 8,
                   child: Material(
-                    color: Colors.black12,
+                    color: context.dayco.shadow,
                     borderRadius: BorderRadius.circular(16),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(16),
@@ -503,6 +508,19 @@ class ClientDetailPage extends StatelessWidget {
       backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+    );
+
+    final brands = pendingBrands;
+    if (brands == null) return;
+
+    // Built from the controller's copy, so repeated edits stack instead of
+    // each one starting from the snapshot this page was pushed with.
+    await controller.updateClient(
+      _currentClient(controller).copyWith(
+        availableBrands: brands,
+        updatedAt: DateTime.now(),
+        syncStatus: 'pending',
       ),
     );
   }
@@ -564,7 +582,7 @@ class _Section extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: context.dayco.card,
           borderRadius: BorderRadius.circular(12),
           boxShadow: ColorManager.lightCardShadow,
         ),
@@ -607,7 +625,7 @@ class _InfoRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: Colors.grey[500]),
+          Icon(icon, size: 18, color: context.dayco.textTertiary),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -615,7 +633,7 @@ class _InfoRow extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 11, color: context.dayco.textTertiary),
                 ),
                 Text(
                   value,

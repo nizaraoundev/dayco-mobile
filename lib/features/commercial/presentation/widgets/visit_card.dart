@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/models.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Visit card widget for daily jobs list
 class VisitCard extends StatelessWidget {
@@ -34,7 +35,7 @@ class VisitCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: isActive
                 ? ColorManager.primaryColor.withOpacity(0.05)
-                : Colors.white,
+                : context.dayco.card,
             borderRadius: BorderRadius.circular(16),
             border: isActive
                 ? Border.all(color: ColorManager.primaryColor, width: 2)
@@ -96,7 +97,7 @@ class VisitCard extends StatelessWidget {
                   Container(
                     width: 24,
                     height: 24,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: ColorManager.surfaceColor,
                       shape: BoxShape.circle,
                     ),
@@ -131,13 +132,13 @@ class VisitCard extends StatelessWidget {
                   Icon(
                     Icons.location_on_outlined,
                     size: 16,
-                    color: Colors.grey[500],
+                    color: context.dayco.textTertiary,
                   ),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       visit.clientAddress,
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 13, color: context.dayco.textSecondary),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -153,16 +154,16 @@ class VisitCard extends StatelessWidget {
                     Icon(
                       Icons.timer_outlined,
                       size: 16,
-                      color: Colors.grey[500],
+                      color: context.dayco.textTertiary,
                     ),
                     const SizedBox(width: 4),
                     Text(
                       '${visit.durationMinutes} min',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 13, color: context.dayco.textSecondary),
                     ),
                     if (visit.orderIds.isNotEmpty) ...[
                       const SizedBox(width: 12),
-                      Icon(
+                      const Icon(
                         Icons.shopping_cart,
                         size: 16,
                         color: ColorManager.secondaryVariant,
@@ -170,7 +171,7 @@ class VisitCard extends StatelessWidget {
                       const SizedBox(width: 4),
                       Text(
                         '${visit.orderIds.length} commande(s)',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 13,
                           color: ColorManager.secondaryVariant,
                         ),

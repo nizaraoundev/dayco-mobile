@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/env/env_prod.dart';
+import '../../../../core/network/api_exception.dart';
 import '../models/client_model.dart';
 import '../models/login_request.dart';
 import '../models/login_response.dart';
@@ -54,7 +56,7 @@ class AuthService {
     } on DioException catch (e) {
       print('DioException during login: ${e.message}, response: ${e.response}');
       final errorMessage = _extractErrorMessage(e);
-      throw Exception(errorMessage);
+      throw ApiException.fromDio(e, errorMessage);
     } catch (e) {
       print('Unexpected error during login: $e');
       throw Exception('Unexpected error: $e');
@@ -86,7 +88,7 @@ class AuthService {
       }
     } on DioException catch (e) {
       final errorMessage = _extractErrorMessage(e);
-      throw Exception(errorMessage);
+      throw ApiException.fromDio(e, errorMessage);
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -138,7 +140,7 @@ class AuthService {
       return _asMap(response.data);
     } on DioException catch (e) {
       final errorMessage = _extractErrorMessage(e);
-      throw Exception(errorMessage);
+      throw ApiException.fromDio(e, errorMessage);
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -181,7 +183,7 @@ class AuthService {
       return _asMap(response.data);
     } on DioException catch (e) {
       final errorMessage = _extractErrorMessage(e);
-      throw Exception(errorMessage);
+      throw ApiException.fromDio(e, errorMessage);
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -229,7 +231,7 @@ class AuthService {
       return _asMap(response.data);
     } on DioException catch (e) {
       final errorMessage = _extractErrorMessage(e);
-      throw Exception(errorMessage);
+      throw ApiException.fromDio(e, errorMessage);
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -240,7 +242,7 @@ class AuthService {
       final response = await _authorizedGet('/api/v1/clients/$clientId');
       return _asMap(response.data);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw ApiException.fromDio(e, _extractErrorMessage(e));
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -268,7 +270,7 @@ class AuthService {
 
       return _asMap(response.data);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw ApiException.fromDio(e, _extractErrorMessage(e));
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -279,7 +281,7 @@ class AuthService {
       final response = await _authorizedGet('/api/v1/clients/my-clients');
       return _asListOfMaps(response.data);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw ApiException.fromDio(e, _extractErrorMessage(e));
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -294,7 +296,7 @@ class AuthService {
       );
       return _asListOfMaps(response.data);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw ApiException.fromDio(e, _extractErrorMessage(e));
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -311,7 +313,7 @@ class AuthService {
       );
       return _asMap(response.data);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw ApiException.fromDio(e, _extractErrorMessage(e));
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -321,7 +323,7 @@ class AuthService {
     try {
       await _authorizedDelete('/api/v1/sub-clients/$subClientId');
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw ApiException.fromDio(e, _extractErrorMessage(e));
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -332,7 +334,7 @@ class AuthService {
       final response = await _authorizedGet('/api/v1/sub-clients/$subClientId');
       return _asMap(response.data);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw ApiException.fromDio(e, _extractErrorMessage(e));
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -347,7 +349,7 @@ class AuthService {
       );
       return _asListOfMaps(response.data);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw ApiException.fromDio(e, _extractErrorMessage(e));
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -363,7 +365,7 @@ class AuthService {
       );
       return _asListOfMaps(response.data);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw ApiException.fromDio(e, _extractErrorMessage(e));
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -423,7 +425,7 @@ class AuthService {
       return {'value': response.data?.toString() ?? ''};
     } on DioException catch (e) {
       final errorMessage = _extractErrorMessage(e);
-      throw Exception(errorMessage);
+      throw ApiException.fromDio(e, errorMessage);
     } catch (e) {
       throw Exception('Unexpected error: $e');
     }
@@ -702,10 +704,29 @@ class AuthService {
   }
 
   String _extractErrorMessage(DioException e) {
+    debugPrint(
+      'API ${e.response?.statusCode ?? 'no status'} on '
+      '${e.requestOptions.path}: ${e.response?.data}',
+    );
     final responseData = e.response?.data;
 
-    if (responseData is Map && responseData['message'] != null) {
-      return responseData['message'].toString();
+    if (responseData is Map) {
+      // Validation failures answer with a generic "un ou plusieurs champs sont
+      // invalides" and put the useful part — which field, and why — in a
+      // separate structure. Without this, every bad payload looks the same and
+      // there is no way to tell what the backend actually objected to.
+      final fieldErrors = _extractFieldErrors(responseData);
+      final message = responseData['message']?.toString().trim() ?? '';
+
+      if (fieldErrors.isNotEmpty) {
+        return message.isEmpty
+            ? fieldErrors.join(' · ')
+            : '$message — ${fieldErrors.join(' · ')}';
+      }
+
+      if (message.isNotEmpty) {
+        return message;
+      }
     }
 
     if (responseData is String && responseData.isNotEmpty) {
@@ -713,6 +734,34 @@ class AuthService {
     }
 
     return e.message ?? 'Network error';
+  }
+
+  /// Per-field complaints, under whichever of the usual names this backend
+  /// used for them.
+  List<String> _extractFieldErrors(Map<dynamic, dynamic> data) {
+    for (final key in const ['errors', 'fieldErrors', 'violations', 'details']) {
+      final raw = data[key];
+
+      if (raw is Map) {
+        return raw.entries
+            .map((entry) => '${entry.key}: ${entry.value}')
+            .toList();
+      }
+
+      if (raw is List && raw.isNotEmpty) {
+        return raw.map((item) {
+          if (item is Map) {
+            final field = item['field'] ?? item['propertyPath'] ?? '';
+            final reason =
+                item['message'] ?? item['defaultMessage'] ?? item.toString();
+            return field.toString().isEmpty ? '$reason' : '$field: $reason';
+          }
+          return item.toString();
+        }).toList();
+      }
+    }
+
+    return const [];
   }
 
   String _normalizeImageUrl(String raw) {

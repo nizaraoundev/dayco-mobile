@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Filter chip for map
 class MapFilterChip extends StatelessWidget {
@@ -19,7 +20,7 @@ class MapFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chipColor = color ?? Colors.grey[700]!;
+    final chipColor = color ?? context.dayco.textSecondary;
 
     return Material(
       color: Colors.transparent,
@@ -29,10 +30,10 @@ class MapFilterChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? chipColor.withOpacity(0.15) : Colors.white,
+            color: isSelected ? chipColor.withOpacity(0.15) : context.dayco.chipFill,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isSelected ? chipColor : Colors.grey[300]!,
+              color: isSelected ? chipColor : context.dayco.border,
               width: isSelected ? 1.5 : 1,
             ),
             boxShadow: [
@@ -49,7 +50,7 @@ class MapFilterChip extends StatelessWidget {
               Icon(
                 icon,
                 size: 16,
-                color: isSelected ? chipColor : Colors.grey[600],
+                color: isSelected ? chipColor : context.dayco.textSecondary,
               ),
               const SizedBox(width: 6),
               Text(
@@ -57,7 +58,7 @@ class MapFilterChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  color: isSelected ? chipColor : Colors.grey[700],
+                  color: isSelected ? chipColor : context.dayco.textSecondary,
                 ),
               ),
             ],

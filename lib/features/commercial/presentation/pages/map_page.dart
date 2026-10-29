@@ -8,6 +8,7 @@ import '../controllers/map_controller.dart';
 import '../widgets/client_info_card.dart';
 import '../widgets/route_info_panel.dart';
 import '../widgets/map_filter_chip.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Map page with client pins, route, and navigation
 class MapPage extends StatelessWidget {
@@ -59,6 +60,7 @@ class MapPage extends StatelessWidget {
                     children: [
                       // Back Button
                       _buildCircleButton(
+                  context,
                         icon: Icons.arrow_back,
                         onTap: () => Get.back(),
                       ),
@@ -69,7 +71,7 @@ class MapPage extends StatelessWidget {
                         child: Container(
                           height: 48,
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: context.dayco.mapPanel,
                             borderRadius: BorderRadius.circular(24),
                             boxShadow: ColorManager.cardShadow,
                           ),
@@ -79,9 +81,9 @@ class MapPage extends StatelessWidget {
                             },
                             decoration: InputDecoration(
                               hintText: 'Rechercher un client...',
-                              prefixIcon: const Icon(
+                              prefixIcon: Icon(
                                 Icons.search,
-                                color: Colors.grey,
+                                color: context.dayco.textTertiary,
                               ),
                               border: InputBorder.none,
                               contentPadding: const EdgeInsets.symmetric(
@@ -96,6 +98,7 @@ class MapPage extends StatelessWidget {
 
                       // Map Type Toggle
                       _buildCircleButton(
+                  context,
                         icon: Icons.layers,
                         onTap: () => mapController.toggleMapType(),
                       ),
@@ -119,14 +122,14 @@ class MapPage extends StatelessWidget {
                         MapFilterChip(
                           label: 'VIP',
                           icon: Icons.star,
-                          color: Colors.amber,
+                          color: ColorManager.tertiaryColor,
                           onTap: () => mapController.showOnlyVipClients(),
                         ),
                         const SizedBox(width: 8),
                         MapFilterChip(
                           label: 'À visiter',
                           icon: Icons.schedule,
-                          color: Colors.orange,
+                          color: context.dayco.warning,
                           onTap: () => mapController.showClientsNeedingVisit(),
                         ),
                         const SizedBox(width: 8),
@@ -136,7 +139,7 @@ class MapPage extends StatelessWidget {
                             icon: Icons.traffic,
                             color: mapController.showTraffic.value
                                 ? ColorManager.primaryColor
-                                : Colors.grey,
+                                : context.dayco.textTertiary,
                             isSelected: mapController.showTraffic.value,
                             onTap: () => mapController.toggleTraffic(),
                           ),
@@ -156,11 +159,13 @@ class MapPage extends StatelessWidget {
             child: Column(
               children: [
                 _buildCircleButton(
+                  context,
                   icon: Icons.my_location,
                   onTap: () => mapController.centerOnCurrentLocation(),
                 ),
                 const SizedBox(height: 8),
                 _buildCircleButton(
+                  context,
                   icon: Icons.zoom_out_map,
                   onTap: () => mapController.showAllClients(),
                 ),
@@ -233,7 +238,7 @@ class MapPage extends StatelessWidget {
                           : () => mapController.generateRoute(),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: ColorManager.primaryColor,
-                        disabledBackgroundColor: Colors.grey[300],
+                        disabledBackgroundColor: context.dayco.border,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -241,12 +246,12 @@ class MapPage extends StatelessWidget {
                       ),
                       icon: Icon(
                         hasRoute ? Icons.check : Icons.route,
-                        color: hasRoute ? Colors.grey : Colors.white,
+                        color: hasRoute ? context.dayco.textTertiary : Colors.white,
                       ),
                       label: Text(
                         hasRoute ? 'Itinéraire actif' : 'Générer itinéraire',
                         style: TextStyle(
-                          color: hasRoute ? Colors.grey : Colors.white,
+                          color: hasRoute ? context.dayco.textTertiary : Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -257,7 +262,7 @@ class MapPage extends StatelessWidget {
                     ElevatedButton(
                       onPressed: () => mapController.clearRoute(),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red[400],
+                        backgroundColor: context.dayco.danger,
                         padding: const EdgeInsets.all(16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -275,15 +280,16 @@ class MapPage extends StatelessWidget {
     );
   }
 
-  Widget _buildCircleButton({
+  Widget _buildCircleButton(
+    BuildContext context, {
     required IconData icon,
     required VoidCallback onTap,
   }) {
     return Material(
-      color: Colors.white,
+      color: context.dayco.mapControl,
       borderRadius: BorderRadius.circular(24),
       elevation: 4,
-      shadowColor: Colors.black26,
+      shadowColor: context.dayco.shadow,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(24),

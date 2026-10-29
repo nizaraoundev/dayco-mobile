@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import '../../../../core/shared/widget/app_bar/dayco_app_bar.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../data/models/models.dart';
+import '../../data/models/commercial_order_models.dart';
 import '../../data/services/sync_service.dart';
 import '../controllers/commercial_controller.dart';
+import '../controllers/commercial_dashboard_controller.dart';
+import '../widgets/order_palette.dart';
 import '../widgets/stats_card.dart';
-import '../widgets/visit_card.dart';
 import '../widgets/quick_action_button.dart';
 import '../widgets/sync_indicator.dart';
 import '../pages/map_page.dart';
 import '../pages/clients_page.dart';
 import '../pages/products_page.dart';
 import '../pages/orders_page.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Main dashboard for commercial app
 class CommercialDashboardPage extends StatelessWidget {
@@ -21,22 +24,26 @@ class CommercialDashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = Get.find<CommercialController>();
     final syncService = Get.find<SyncService>();
+    final dashboard = Get.isRegistered<CommercialDashboardController>()
+        ? Get.find<CommercialDashboardController>()
+        : Get.put(CommercialDashboardController());
 
     return Scaffold(
       backgroundColor: ColorManager.backgroundColor,
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: () async => controller.refreshData(),
+          onRefresh: () async {
+            await dashboard.refreshDashboard();
+            controller.refreshData();
+          },
           color: ColorManager.primaryColor,
           child: CustomScrollView(
             slivers: [
               // App Bar
-              SliverAppBar(
+              DaycoSliverAppBar(
                 expandedHeight: 120,
-                floating: true,
                 pinned: true,
-                backgroundColor: ColorManager.primaryColor,
-                flexibleSpace: FlexibleSpaceBar(
+                flexibleContent: FlexibleSpaceBar(
                   title: Column(
                     mainAxisAlignment: MainAxisAlignment.end,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -83,7 +90,7 @@ class CommercialDashboardPage extends StatelessWidget {
                 ],
               ),
 
-              // Stats Cards
+              // Stats Cards — every figure below is one the backend counted.
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -92,22 +99,28 @@ class CommercialDashboardPage extends StatelessWidget {
                       children: [
                         Expanded(
                           child: StatsCard(
-                            title: 'Visites',
-                            value:
-                                '${controller.completedVisitsToday.value}/${controller.todayVisits.length}',
-                            subtitle: 'Terminées',
-                            icon: Icons.location_on,
+                            title: 'Commandes',
+                            value: dashboard.hasOrderError.value
+                                ? '—'
+                                : '${dashboard.ordersEnAttente.value}',
+                            subtitle: dashboard.hasOrderError.value
+                                ? 'Indisponible'
+                                : 'En attente',
+                            icon: Icons.receipt_long,
                             color: ColorManager.primaryColor,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: StatsCard(
-                            title: 'Ventes',
-                            value:
-                                '${controller.todaySales.value.toStringAsFixed(0)} TND',
-                            subtitle: "Aujourd'hui",
-                            icon: Icons.shopping_cart,
+                            title: 'Stock',
+                            value: dashboard.hasStockError.value
+                                ? '—'
+                                : '${dashboard.stockAlertCount.value}',
+                            subtitle: dashboard.hasStockError.value
+                                ? 'Indisponible'
+                                : 'En alerte',
+                            icon: Icons.inventory_2_outlined,
                             color: ColorManager.secondaryVariant,
                           ),
                         ),
@@ -115,9 +128,13 @@ class CommercialDashboardPage extends StatelessWidget {
                         Expanded(
                           child: StatsCard(
                             title: 'Clients',
-                            value: '${controller.vipClients.length}',
-                            subtitle: 'VIP',
-                            icon: Icons.star,
+                            value: dashboard.hasClientError.value
+                                ? '—'
+                                : '${dashboard.clientCount.value}',
+                            subtitle: dashboard.hasClientError.value
+                                ? 'Indisponible'
+                                : 'Rattachés',
+                            icon: Icons.people_outline,
                             color: ColorManager.tertiaryColor,
                           ),
                         ),
@@ -125,6 +142,38 @@ class CommercialDashboardPage extends StatelessWidget {
                     ),
                   ),
                 ),
+              ),
+
+              // The rest of the order pipeline, which does not need a tile
+              // each but is the shape of a commercial's week.
+              SliverToBoxAdapter(
+                child: Obx(() {
+                  if (dashboard.hasOrderError.value) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Row(
+                      children: [
+                        _PipelineChip(
+                          label: 'En préparation',
+                          count: dashboard.ordersEnPreparation.value,
+                        ),
+                        const SizedBox(width: 8),
+                        _PipelineChip(
+                          label: 'Expédiées',
+                          count: dashboard.ordersExpediees.value,
+                        ),
+                        const SizedBox(width: 8),
+                        _PipelineChip(
+                          label: 'Livrées',
+                          count: dashboard.ordersLivrees.value,
+                        ),
+                      ],
+                    ),
+                  );
+                }),
               ),
 
               // Quick Actions
@@ -192,7 +241,9 @@ class CommercialDashboardPage extends StatelessWidget {
 
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
 
-              // Today's Visits
+              // Recent orders. This section used to list today's visits from
+              // sample data; there is no visits endpoint on this backend, so
+              // it shows the latest real orders instead of inventing a day.
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -200,7 +251,7 @@ class CommercialDashboardPage extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        "Visites d'aujourd'hui",
+                        'Commandes récentes',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -208,7 +259,7 @@ class CommercialDashboardPage extends StatelessWidget {
                         ),
                       ),
                       TextButton(
-                        onPressed: () {},
+                        onPressed: () => Get.to(() => const OrdersPage()),
                         child: const Text('Voir tout'),
                       ),
                     ],
@@ -216,31 +267,57 @@ class CommercialDashboardPage extends StatelessWidget {
                 ),
               ),
 
-              // Visits List
+              // Recent orders list
               Obx(() {
-                if (controller.isLoading.value) {
+                if (dashboard.isLoading.value &&
+                    dashboard.recentOrders.isEmpty) {
                   return const SliverToBoxAdapter(
-                    child: Center(child: CircularProgressIndicator()),
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
                   );
                 }
 
-                if (controller.todayVisits.isEmpty) {
+                if (dashboard.isAuthError.value) {
+                  return SliverToBoxAdapter(
+                    child: _DashboardNotice(
+                      icon: Icons.lock_outline,
+                      message:
+                          'Session expirée. Reconnectez-vous à '
+                          "l'application pour voir vos chiffres.",
+                      onRetry: dashboard.refreshDashboard,
+                    ),
+                  );
+                }
+
+                if (dashboard.hasOrderError.value) {
+                  return SliverToBoxAdapter(
+                    child: _DashboardNotice(
+                      icon: Icons.cloud_off_outlined,
+                      message: 'Les commandes n\'ont pas pu être chargées.',
+                      onRetry: dashboard.refreshDashboard,
+                    ),
+                  );
+                }
+
+                if (dashboard.recentOrders.isEmpty) {
                   return SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.all(32),
                       child: Column(
                         children: [
                           Icon(
-                            Icons.calendar_today_outlined,
+                            Icons.receipt_long_outlined,
                             size: 64,
-                            color: Colors.grey[400],
+                            color: context.dayco.textTertiary,
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            "Aucune visite planifiée pour aujourd'hui",
+                            'Aucune commande enregistrée.',
                             style: TextStyle(
                               fontSize: 16,
-                              color: Colors.grey[600],
+                              color: context.dayco.textSecondary,
                             ),
                             textAlign: TextAlign.center,
                           ),
@@ -254,27 +331,15 @@ class CommercialDashboardPage extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate((context, index) {
-                      final visit = controller.todayVisits[index];
+                      final order = dashboard.recentOrders[index];
                       return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: VisitCard(
-                          visit: visit,
-                          onTap: () => _showVisitDetails(context, visit),
-                          onStart: visit.status == VisitStatus.planned
-                              ? () => controller.startVisit(visit)
-                              : null,
-                          onComplete: visit.status == VisitStatus.inProgress
-                              ? () => _showCompleteVisitDialog(context, visit)
-                              : null,
-                          onNavigate: () {
-                            final client = controller.clients.firstWhere(
-                              (c) => c.id == visit.clientId,
-                            );
-                            Get.to(() => MapPage(initialClient: client));
-                          },
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _RecentOrderTile(
+                          order: order,
+                          onTap: () => Get.to(() => const OrdersPage()),
                         ),
                       );
-                    }, childCount: controller.todayVisits.length),
+                    }, childCount: dashboard.recentOrders.length),
                   ),
                 );
               }),
@@ -372,138 +437,44 @@ class CommercialDashboardPage extends StatelessWidget {
       ),
     );
   }
+}
 
-  void _showVisitDetails(BuildContext context, VisitModel visit) {
-    Get.bottomSheet(
-      Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+/// One count from the order pipeline. Smaller than a stat card because these
+/// are context for the figure above, not figures to act on.
+class _PipelineChip extends StatelessWidget {
+  final String label;
+  final int count;
+
+  const _PipelineChip({required this.label, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: ColorManager.cardColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: ColorManager.lightGrey2),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: visit.statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    visit.statusLabel,
-                    style: TextStyle(
-                      color: visit.statusColor,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Get.back(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
             Text(
-              visit.clientName,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(
-                  Icons.location_on_outlined,
-                  size: 18,
-                  color: Colors.grey,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    visit.clientAddress,
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.access_time, size: 18, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text(
-                  'Planifiée à ${visit.plannedDate.hour.toString().padLeft(2, '0')}:${visit.plannedDate.minute.toString().padLeft(2, '0')}',
-                  style: const TextStyle(color: Colors.grey),
-                ),
-              ],
-            ),
-            if (visit.notes.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              const Text(
-                'Notes',
-                style: TextStyle(fontWeight: FontWeight.bold),
+              '$count',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: ColorManager.textPrimary,
               ),
-              const SizedBox(height: 8),
-              ...visit.notes.map(
-                (note) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: note.tagColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          note.tagLabel,
-                          style: TextStyle(fontSize: 10, color: note.tagColor),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(note.content)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  Get.back();
-                  final controller = Get.find<CommercialController>();
-                  final client = controller.clients.firstWhere(
-                    (c) => c.id == visit.clientId,
-                  );
-                  Get.to(() => MapPage(initialClient: client));
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ColorManager.primaryColor,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Naviguer vers ce client',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10.5,
+                color: ColorManager.textTertiary,
               ),
             ),
           ],
@@ -511,50 +482,125 @@ class CommercialDashboardPage extends StatelessWidget {
       ),
     );
   }
+}
 
-  void _showCompleteVisitDialog(BuildContext context, VisitModel visit) {
-    final outcomeController = TextEditingController();
+/// A recent order, as a line on the dashboard: number, client, status, total.
+class _RecentOrderTile extends StatelessWidget {
+  final CommercialOrder order;
+  final VoidCallback onTap;
 
-    Get.dialog(
-      AlertDialog(
-        title: const Text('Terminer la visite'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+  const _RecentOrderTile({required this.order, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = OrderPalette.forStatus(order.status);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: ColorManager.cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: ColorManager.lightGrey2),
+        ),
+        child: Row(
           children: [
-            TextField(
-              controller: outcomeController,
-              decoration: const InputDecoration(
-                labelText: 'Résultat de la visite',
-                hintText: 'Ex: Commande passée, RDV pris...',
-                border: OutlineInputBorder(),
+            Container(width: 3, height: 34, color: color),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    order.numeroCommande,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: ColorManager.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    order.clientRaisonSociale,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: ColorManager.textSecondary,
+                    ),
+                  ),
+                ],
               ),
-              maxLines: 3,
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '${order.montantTtc.toStringAsFixed(0)} DT',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: ColorManager.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  OrderPalette.labelFor(order.status).toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                    color: color,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Get.back(), child: const Text('Annuler')),
-          ElevatedButton(
-            onPressed: () {
-              Get.find<CommercialController>().completeVisit(
-                visit,
-                outcome: outcomeController.text,
-              );
-              Get.back();
-              Get.snackbar(
-                'Visite terminée',
-                'La visite a été enregistrée avec succès',
-                backgroundColor: ColorManager.secondaryVariant,
-                colorText: Colors.white,
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: ColorManager.primaryColor,
+      ),
+    );
+  }
+}
+
+/// Why a section of the dashboard is empty, with the way to try again. A
+/// figure that could not be read says so; it does not show a zero.
+class _DashboardNotice extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  final VoidCallback onRetry;
+
+  const _DashboardNotice({
+    required this.icon,
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          Icon(icon, size: 40, color: ColorManager.textTertiary),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              color: ColorManager.textSecondary,
             ),
-            child: const Text(
-              'Terminer',
-              style: TextStyle(color: Colors.white),
-            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Réessayer'),
           ),
         ],
       ),

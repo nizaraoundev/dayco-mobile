@@ -3,6 +3,8 @@ import 'package:get/get.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/models.dart';
 import '../controllers/commercial_controller.dart';
+import '../../../../core/theme/dayco_colors.dart';
+import '../../../../core/shared/widget/app_bar/dayco_app_bar.dart';
 
 /// Products page - catalog with search and filters
 class ProductsPage extends StatelessWidget {
@@ -14,10 +16,8 @@ class ProductsPage extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: ColorManager.backgroundColor,
-      appBar: AppBar(
-        title: const Text('Catalogue Produits'),
-        backgroundColor: ColorManager.primaryColor,
-        foregroundColor: Colors.white,
+      appBar: DaycoAppBar(
+        titleText: 'Catalogue Produits',
         actions: [
           IconButton(
             icon: const Icon(Icons.qr_code_scanner),
@@ -32,7 +32,7 @@ class ProductsPage extends StatelessWidget {
           // Search Bar
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.white,
+            color: context.dayco.card,
             child: TextField(
               onChanged: controller.searchProducts,
               decoration: InputDecoration(
@@ -44,11 +44,11 @@ class ProductsPage extends StatelessWidget {
                 ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey[300]!),
+                  borderSide: BorderSide(color: context.dayco.border),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey[300]!),
+                  borderSide: BorderSide(color: context.dayco.border),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -57,7 +57,7 @@ class ProductsPage extends StatelessWidget {
                   ),
                 ),
                 filled: true,
-                fillColor: Colors.grey[50],
+                fillColor: context.dayco.surface,
               ),
             ),
           ),
@@ -102,12 +102,12 @@ class ProductsPage extends StatelessWidget {
                       Icon(
                         Icons.inventory_2_outlined,
                         size: 64,
-                        color: Colors.grey[400],
+                        color: context.dayco.textTertiary,
                       ),
                       const SizedBox(height: 16),
                       Text(
                         'Aucun produit trouvé',
-                        style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 16, color: context.dayco.textSecondary),
                       ),
                     ],
                   ),
@@ -277,7 +277,7 @@ class ProductsPage extends StatelessWidget {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey[300],
+                      color: context.dayco.border,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -288,13 +288,13 @@ class ProductsPage extends StatelessWidget {
                   height: 150,
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: context.dayco.surface,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     _getCategoryIcon(product.category),
                     size: 64,
-                    color: Colors.grey[400],
+                    color: context.dayco.textTertiary,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -328,7 +328,7 @@ class ProductsPage extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   'Réf: ${product.reference}',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 14, color: context.dayco.textSecondary),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -365,7 +365,7 @@ class ProductsPage extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.grey[50],
+                    color: context.dayco.surface,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -402,7 +402,7 @@ class ProductsPage extends StatelessWidget {
                               v,
                               style: const TextStyle(fontSize: 12),
                             ),
-                            backgroundColor: Colors.grey[100],
+                            backgroundColor: context.dayco.surface,
                           ),
                         )
                         .toList(),
@@ -414,7 +414,7 @@ class ProductsPage extends StatelessWidget {
                   children: [
                     Container(
                       decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[300]!),
+                        border: Border.all(color: context.dayco.border),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -524,12 +524,12 @@ class ProductsPage extends StatelessWidget {
                         width: 50,
                         height: 50,
                         decoration: BoxDecoration(
-                          color: Colors.grey[100],
+                          color: context.dayco.surface,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(
                           _getCategoryIcon(item.product.category),
-                          color: Colors.grey[600],
+                          color: context.dayco.textSecondary,
                         ),
                       ),
                       title: Text(
@@ -560,7 +560,7 @@ class ProductsPage extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: context.dayco.card,
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.05),
@@ -700,7 +700,7 @@ class _CategoryChip extends StatelessWidget {
         selectedColor: ColorManager.primaryColor.withOpacity(0.2),
         checkmarkColor: ColorManager.primaryColor,
         labelStyle: TextStyle(
-          color: isSelected ? ColorManager.primaryColor : Colors.grey[700],
+          color: isSelected ? ColorManager.primaryColor : context.dayco.textSecondary,
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
         ),
       ),
@@ -753,7 +753,7 @@ class _ProductCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: context.dayco.card,
           borderRadius: BorderRadius.circular(12),
           boxShadow: ColorManager.lightCardShadow,
         ),
@@ -766,7 +766,7 @@ class _ProductCard extends StatelessWidget {
               child: Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: context.dayco.surface,
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(12),
                   ),
@@ -777,7 +777,7 @@ class _ProductCard extends StatelessWidget {
                       child: Icon(
                         _getCategoryIcon(),
                         size: 48,
-                        color: Colors.grey[400],
+                        color: context.dayco.textTertiary,
                       ),
                     ),
                     Positioned(
@@ -826,7 +826,7 @@ class _ProductCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       product.brand,
-                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 10, color: context.dayco.textSecondary),
                     ),
                     const Spacer(),
                     Row(
@@ -850,7 +850,7 @@ class _ProductCard extends StatelessWidget {
                               color:
                                   product.stockStatus != StockStatus.outOfStock
                                   ? ColorManager.primaryColor
-                                  : Colors.grey,
+                                  : context.dayco.textTertiary,
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: const Icon(
@@ -891,7 +891,7 @@ class _PriceCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isHighlighted
             ? ColorManager.primaryColor.withOpacity(0.1)
-            : Colors.grey[50],
+            : context.dayco.surface,
         borderRadius: BorderRadius.circular(12),
         border: isHighlighted
             ? Border.all(color: ColorManager.primaryColor)
@@ -906,7 +906,7 @@ class _PriceCard extends StatelessWidget {
               fontSize: 12,
               color: isHighlighted
                   ? ColorManager.primaryColor
-                  : Colors.grey[600],
+                  : context.dayco.textSecondary,
             ),
           ),
           const SizedBox(height: 4),

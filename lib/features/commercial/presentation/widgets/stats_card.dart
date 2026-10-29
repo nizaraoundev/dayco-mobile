@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/theme/dayco_colors.dart';
 
 /// Stats card widget for dashboard
 class StatsCard extends StatelessWidget {
@@ -23,7 +24,7 @@ class StatsCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.dayco.card,
         borderRadius: BorderRadius.circular(16),
         boxShadow: ColorManager.lightCardShadow,
       ),
@@ -41,7 +42,7 @@ class StatsCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             value,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
               color: ColorManager.textPrimary,
@@ -50,7 +51,7 @@ class StatsCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             subtitle,
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            style: TextStyle(fontSize: 12, color: context.dayco.textSecondary),
           ),
         ],
       ),
